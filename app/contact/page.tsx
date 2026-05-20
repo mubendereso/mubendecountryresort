@@ -1,4 +1,5 @@
 import Reveal from '@/components/Reveal';
+import { ContactForm } from './contact-form';
 
 export default function ContactPage() {
   return (
@@ -17,41 +18,7 @@ export default function ContactPage() {
           {/* Contact form block */}
           <Reveal className="rounded-3xl border border-stoneWarm-200 bg-white p-6 shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
             <h2 className="font-heading text-2xl">Send a Message</h2>
-            <form className="mt-5 space-y-4">
-              <div>
-                <label htmlFor="name" className="mb-2 block text-sm font-medium">Name</label>
-                <input
-                  id="name"
-                  type="text"
-                  placeholder="Your full name"
-                  className="w-full rounded-2xl border border-stoneWarm-300 bg-stoneWarm-100/50 px-4 py-3 text-sm outline-none focus:border-oliveMuted-500 dark:border-zinc-700 dark:bg-zinc-800"
-                />
-              </div>
-              <div>
-                <label htmlFor="email" className="mb-2 block text-sm font-medium">Email</label>
-                <input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  className="w-full rounded-2xl border border-stoneWarm-300 bg-stoneWarm-100/50 px-4 py-3 text-sm outline-none focus:border-oliveMuted-500 dark:border-zinc-700 dark:bg-zinc-800"
-                />
-              </div>
-              <div>
-                <label htmlFor="message" className="mb-2 block text-sm font-medium">Message</label>
-                <textarea
-                  id="message"
-                  rows={5}
-                  placeholder="Tell us about your stay or event plans"
-                  className="w-full rounded-2xl border border-stoneWarm-300 bg-stoneWarm-100/50 px-4 py-3 text-sm outline-none focus:border-oliveMuted-500 dark:border-zinc-700 dark:bg-zinc-800"
-                />
-              </div>
-              <button
-                type="submit"
-                className="rounded-full bg-oliveMuted-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-oliveMuted-600"
-              >
-                Submit Inquiry
-              </button>
-            </form>
+            <ContactForm />
           </Reveal>
 
           {/* Map + direct CTA block */}

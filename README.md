@@ -1,6 +1,6 @@
-# Mubende Country Resort (Next.js 14)
+# Mubende Country Resort (Next.js)
 
-A complete App Router website scaffold for Mubende Country Resort using Tailwind CSS.
+App Router website for Mubende Country Resort using Tailwind CSS.
 
 ## Run locally
 
@@ -10,6 +10,15 @@ npm run dev
 ```
 
 Open `http://localhost:3000`.
+
+## Database schema
+
+This storefront and the admin panel share a single Neon Postgres database. The schema, migrations, seed data, and Pesapal payment-recovery infrastructure live in the admin repo:
+
+- Repo: <https://github.com/mubendereso/mubendecountryresort-admin>
+- Path: `db/`
+
+Do not duplicate schema files here.
 
 ## Security TODOs
 
