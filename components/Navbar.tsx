@@ -32,12 +32,12 @@ export default function Navbar() {
               {link.label}
             </Link>
           ))}
-          <a
-            href="https://wa.me/256700000000"
+          <Link
+            href="/book"
             className="rounded-full bg-oliveMuted-500 px-5 py-2 text-sm font-semibold text-white transition hover:bg-oliveMuted-600"
           >
             Book Now
-          </a>
+          </Link>
         </div>
 
         <button
@@ -63,12 +63,13 @@ export default function Navbar() {
                 {link.label}
               </Link>
             ))}
-            <a
-              href="https://wa.me/256700000000"
+            <Link
+              href="/book"
+              onClick={() => setOpen(false)}
               className="rounded-full bg-oliveMuted-500 px-4 py-3 text-center text-sm font-semibold text-white"
             >
-              Book on WhatsApp
-            </a>
+              Book Now
+            </Link>
           </div>
         </div>
       )}

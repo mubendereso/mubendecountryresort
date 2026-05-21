@@ -48,7 +48,7 @@ export const services: Service[] = [
   {
     slug: 'garden-escapes',
     title: 'Garden Escapes',
-    image: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=900&q=80',
+    image: 'https://images.unsplash.com/photo-1463936575829-25148e1db1b8?auto=format&fit=crop&w=900&q=80',
     summary: 'Step into peaceful greenery and quiet corners across the resort grounds.',
     overview:
       'Garden Escapes offers scenic paths, restful benches, and open-air spaces for reading, walking, and gentle reflection.',
