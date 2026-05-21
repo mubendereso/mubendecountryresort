@@ -24,6 +24,9 @@
 		// see https://opennext.js.org/cloudflare/howtos/image
 		"binding": "IMAGES"
 	},
+	"vars": {
+		"PESAPAL_BASE_URL": "https://cybqa.pesapal.com/pesapalv3"
+	},
 	"observability": {
 		"enabled": false,
 		"head_sampling_rate": 1,

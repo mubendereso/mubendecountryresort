@@ -27,7 +27,7 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
 
   const sql = getSql();
 
-  // Step 1: Create booking via RPC (handles FOR UPDATE inventory lock + 15-min hold)
+  // Step 1: Create booking via RPC (informational availability check, no inventory hold)
   let bookingId: string;
   let reference: string;
   let quotedTotalUgx: number;
@@ -35,7 +35,7 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
   try {
     const rows = (await sql`
       SELECT booking_id, reference, quoted_total_ugx
-      FROM create_booking(
+      FROM create_online_booking(
         ${roomTypeSlug}::text,
         ${checkIn}::date,
         ${checkOut}::date,
@@ -158,11 +158,6 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
         WHERE id = ${attemptId}::uuid
       `;
     }
-
-    // Enqueue durable recovery in case IPN is missed
-    await sql`
-      SELECT enqueue_pending_payment_recovery(${bookingId}::uuid, ${orderTrackingId})
-    `;
   } catch (err) {
     console.error("Post-initiation bookkeeping failed (non-fatal):", err);
   }

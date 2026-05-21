@@ -80,14 +80,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     if (paymentStatus === "paid" && currentStatus === "pending_payment") {
-      // Transition booking to confirmed (idempotent: WHERE status = 'pending_payment')
-      await sql`
-        UPDATE bookings SET
-          status = 'confirmed',
-          payment_reference = ${confirmationCode},
-          paid_at = now()
-        WHERE id = ${bookingId}::uuid AND status = 'pending_payment'
-      `;
+      // Atomically check availability and confirm. On race condition the
+      // booking is placed into awaiting_confirmation for manual review.
+      const [result] = (await sql`
+        SELECT success, requires_review, error_code
+        FROM confirm_booking_payment(
+          ${bookingId}::uuid,
+          ${orderTrackingId},
+          ${confirmationCode}
+        )
+      `) as { success: boolean; requires_review: boolean; error_code: string | null }[];
+
+      if (result?.requires_review) {
+        console.warn(
+          "IPN: availability conflict for booking",
+          merchantReference,
+          "— placed in awaiting_confirmation for manual review"
+        );
+      } else if (!result?.success) {
+        console.error("IPN: confirm_booking_payment failed:", result?.error_code, "for", merchantReference);
+      }
 
       // Update the payment attempt record
       await sql`
@@ -97,14 +109,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           last_verification_response = ${JSON.stringify({ paymentStatus, confirmationCode })}::jsonb
         WHERE booking_id = ${bookingId}::uuid
           AND (provider_reference = ${orderTrackingId} OR merchant_reference = ${merchantReference})
-      `;
-
-      // Mark the recovery queue item as completed
-      await sql`
-        UPDATE pending_payment_recoveries SET
-          status = 'completed',
-          completed_at = now()
-        WHERE booking_id = ${bookingId}::uuid AND order_tracking_id = ${orderTrackingId}
       `;
     }
 

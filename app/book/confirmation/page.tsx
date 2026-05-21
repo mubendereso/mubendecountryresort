@@ -85,6 +85,7 @@ export default async function ConfirmationPage({
 
   const b = rows[0];
   const isConfirmed = ["confirmed", "checked_in", "checked_out"].includes(b.status);
+  const isUnderReview = b.status === "awaiting_confirmation";
   const isPending = b.status === "pending_payment";
   const isCancelledOrFailed = b.status === "cancelled" || b.status === "refunded";
 
@@ -103,6 +104,19 @@ export default async function ConfirmationPage({
               Your booking is confirmed. We look forward to welcoming you at Mubende Country Resort.
             </p>
           </div>
+        ) : isUnderReview ? (
+          <div className="rounded-3xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-900 dark:bg-amber-950">
+            <p className="text-sm font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+              Under Review
+            </p>
+            <h1 className="mt-2 font-heading text-3xl text-zinc-800 dark:text-zinc-100">
+              Payment received
+            </h1>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
+              We have received your payment and our team will confirm your booking shortly.
+              Please contact us if you need immediate assistance.
+            </p>
+          </div>
         ) : isPending && cancelled === "1" ? (
           <div className="rounded-3xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-900 dark:bg-amber-950">
             <p className="text-sm font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
@@ -112,7 +126,7 @@ export default async function ConfirmationPage({
               Payment was not completed
             </h1>
             <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
-              Your booking is held for 15 minutes. Contact us to pay by alternative means.
+              Your payment was cancelled. Please try again or contact us to book by alternative means.
             </p>
           </div>
         ) : isPending ? (
@@ -121,11 +135,11 @@ export default async function ConfirmationPage({
               Payment Pending
             </p>
             <h1 className="mt-2 font-heading text-3xl text-zinc-800 dark:text-zinc-100">
-              Awaiting confirmation
+              Awaiting payment confirmation
             </h1>
             <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
-              Your booking is held while we confirm your payment. This usually resolves within
-              a few minutes.
+              Your payment is being processed. This usually resolves within a few minutes.
+              Contact us if you have already paid and this message persists.
             </p>
           </div>
         ) : isCancelledOrFailed ? (
