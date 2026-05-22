@@ -4,6 +4,10 @@ import { experiences } from '@/app/experiences/data';
 import { getRoomSlugs } from '@/lib/rooms/data';
 import { services } from '@/app/services/data';
 
+// Generated at request time, not build time: room slugs come from the DB and
+// DATABASE_URL is unavailable during the static build.
+export const dynamic = 'force-dynamic';
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const siteUrl =
     process.env.SITE_URL ??
