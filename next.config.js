@@ -6,6 +6,12 @@ const nextConfig = {
       {
         protocol: 'https',
         hostname: 'images.unsplash.com'
+      },
+      {
+        // R2 public bucket hosting admin-uploaded room images. Overridable via
+        // env for a custom CDN domain; defaults to the bucket's r2.dev host.
+        protocol: 'https',
+        hostname: process.env.R2_PUBLIC_HOSTNAME ?? '*.r2.dev'
       }
     ]
   },

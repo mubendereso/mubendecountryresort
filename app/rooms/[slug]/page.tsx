@@ -3,21 +3,17 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import Reveal from '@/components/Reveal';
-import { detailedRooms } from '@/app/rooms/data';
+import { getRoomBySlug } from '@/lib/rooms/data';
+
+export const dynamic = 'force-dynamic';
 
 type RoomPageProps = {
   params: Promise<{ slug: string }>;
 };
 
-export async function generateStaticParams() {
-  return detailedRooms.map((room) => ({
-    slug: room.slug
-  }));
-}
-
 export async function generateMetadata({ params }: RoomPageProps): Promise<Metadata> {
   const { slug } = await params;
-  const room = detailedRooms.find((item) => item.slug === slug);
+  const room = await getRoomBySlug(slug);
 
   if (!room) {
     return {
@@ -33,7 +29,7 @@ export async function generateMetadata({ params }: RoomPageProps): Promise<Metad
 
 export default async function RoomPage({ params }: RoomPageProps) {
   const { slug } = await params;
-  const room = detailedRooms.find((item) => item.slug === slug);
+  const room = await getRoomBySlug(slug);
 
   if (!room) {
     notFound();

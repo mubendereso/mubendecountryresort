@@ -1,10 +1,10 @@
 import { amenities } from '@/app/amenities/data';
 import type { MetadataRoute } from 'next';
 import { experiences } from '@/app/experiences/data';
-import { detailedRooms } from '@/app/rooms/data';
+import { getRoomSlugs } from '@/lib/rooms/data';
 import { services } from '@/app/services/data';
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const siteUrl =
     process.env.SITE_URL ??
     process.env.NEXT_PUBLIC_SITE_URL ??
@@ -14,7 +14,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const routes = ['', '/rooms', '/gallery', '/amenities', '/contact'];
   const amenityRoutes = amenities.map((item) => `/amenities/${item.slug}`);
   const experienceRoutes = experiences.map((item) => `/experiences/${item.slug}`);
-  const roomRoutes = detailedRooms.map((item) => `/rooms/${item.slug}`);
+  const roomRoutes = (await getRoomSlugs()).map((slug) => `/rooms/${slug}`);
   const serviceRoutes = services.map((item) => `/services/${item.slug}`);
   const allRoutes = [...routes, ...amenityRoutes, ...experienceRoutes, ...serviceRoutes, ...roomRoutes];
 
