@@ -3,7 +3,14 @@ import BookForm from "./book-form";
 
 export const dynamic = "force-dynamic";
 
-export default async function BookPage() {
+export default async function BookPage({
+  searchParams
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const { room } = await searchParams;
+  const initialSlug = Array.isArray(room) ? room[0] : room;
+
   const sql = getSql();
   const roomTypes = (await sql`
     SELECT id, slug, title, description, price_ugx
@@ -27,7 +34,7 @@ export default async function BookPage() {
             No rooms are currently available for booking. Please contact us directly.
           </p>
         ) : (
-          <BookForm roomTypes={roomTypes} />
+          <BookForm roomTypes={roomTypes} initialSlug={initialSlug} />
         )}
       </div>
     </section>

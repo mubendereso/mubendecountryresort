@@ -11,10 +11,20 @@ type RoomType = {
   price_ugx: number;
 };
 
-export default function BookForm({ roomTypes }: { roomTypes: RoomType[] }) {
+export default function BookForm({
+  roomTypes,
+  initialSlug
+}: {
+  roomTypes: RoomType[];
+  initialSlug?: string;
+}) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [selectedSlug, setSelectedSlug] = useState(roomTypes[0]?.slug ?? "");
+  const [selectedSlug, setSelectedSlug] = useState(
+    initialSlug && roomTypes.some((r) => r.slug === initialSlug)
+      ? initialSlug
+      : roomTypes[0]?.slug ?? ""
+  );
 
   const selectedRoom = roomTypes.find((r) => r.slug === selectedSlug);
 
