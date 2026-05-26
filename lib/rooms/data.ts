@@ -29,6 +29,20 @@ export type DetailedRoom = Room & {
 const FALLBACK_IMAGE =
   "https://images.unsplash.com/photo-1566665797739-1674de7a421a?auto=format&fit=crop&w=1400&q=80";
 
+const FALLBACK_GALLERY_IMAGES = [
+  "https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=1400&q=80",
+  "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1519823551278-64ac92734fb1?auto=format&fit=crop&w=1400&q=80",
+  "https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&w=1400&q=80",
+  "https://images.unsplash.com/photo-1445019980597-93fa8acb246c?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1400&q=80",
+  "https://images.unsplash.com/photo-1470246973918-29a93221c455?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1512918728675-ed5a9ecdebfd?auto=format&fit=crop&w=1400&q=80"
+];
+
+const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
+
 // price_ugx is a Postgres bigint, returned by the driver as a string.
 type RoomTypeRow = {
   slug: string;
@@ -115,4 +129,51 @@ export async function getRoomSlugs(): Promise<string[]> {
     select slug from room_types where is_published = true order by sort_order asc
   `) as { slug: string }[];
   return rows.map((r) => r.slug);
+}
+
+function getKampalaWeekIndex(date = new Date()): number {
+  const kampalaDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Kampala" }).format(date);
+  const utcMidnight = Date.parse(`${kampalaDate}T00:00:00Z`);
+  return Math.floor(utcMidnight / MS_PER_WEEK);
+}
+
+function rotateForCurrentWeek(images: string[]): string[] {
+  if (images.length <= 1) return images;
+  const offset = getKampalaWeekIndex() % images.length;
+  return [...images.slice(offset), ...images.slice(0, offset)];
+}
+
+function compactImagePool(images: string[]): string[] {
+  return Array.from(new Set(images.map((image) => image.trim()).filter(Boolean)));
+}
+
+export async function getResortGalleryImages(limit?: number): Promise<string[]> {
+  const sql = getSql();
+  const rows = (await sql`
+    select image_url
+    from (
+      select rt.sort_order * 1000 as sort_key, rt.cover_image_url as image_url
+      from room_types rt
+      where rt.is_published = true and rt.cover_image_url is not null
+
+      union all
+
+      select rt.sort_order * 1000 + g.ordinality::int as sort_key, g.image_url
+      from room_types rt
+      cross join lateral unnest(rt.gallery) with ordinality as g(image_url, ordinality)
+      where rt.is_published = true
+
+      union all
+
+      select 100000 + gi.sort_order as sort_key, gi.image_url
+      from gallery_images gi
+      where gi.is_published = true
+    ) pooled
+    where image_url is not null and btrim(image_url) <> ''
+    order by sort_key asc, image_url asc
+  `) as { image_url: string }[];
+
+  const pooled = compactImagePool(rows.map((row) => row.image_url));
+  const rotated = rotateForCurrentWeek(pooled.length > 0 ? pooled : FALLBACK_GALLERY_IMAGES);
+  return typeof limit === "number" ? rotated.slice(0, limit) : rotated;
 }

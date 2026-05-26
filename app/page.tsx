@@ -3,17 +3,12 @@ import Link from 'next/link';
 import Reveal from '@/components/Reveal';
 import { experiences } from '@/app/experiences/data';
 import { services } from '@/app/services/data';
+import { getResortGalleryImages } from '@/lib/rooms/data';
 
-const galleryPreview = [
-  'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1400&q=80',
-  'https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?auto=format&fit=crop&w=1400&q=80',
-  'https://images.unsplash.com/photo-1445019980597-93fa8acb246c?auto=format&fit=crop&w=1400&q=80',
-  'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&w=1400&q=80',
-  'https://images.unsplash.com/photo-1470246973918-29a93221c455?auto=format&fit=crop&w=1400&q=80',
-  'https://images.unsplash.com/photo-1512918728675-ed5a9ecdebfd?auto=format&fit=crop&w=1400&q=80'
-];
+export const dynamic = 'force-dynamic';
 
-export default function HomePage() {
+export default async function HomePage() {
+  const galleryPreview = await getResortGalleryImages(6);
   return (
     <>
       {/* Hero section */}
