@@ -1,7 +1,8 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import { getSql } from "@/lib/db/client";
 import { getPesapalTransactionStatus } from "@/lib/pesapal/client";
 import { consumeRateLimit } from "@/lib/rate-limit";
+import { scheduleDuePendingPaymentRecovery } from "@/lib/payments/recovery";
 
 // MCR-SEC-11: cap how often a single payment's IPN is processed. Genuine
 // Pesapal notifications for one tracking id are few; this stops repeated hits
@@ -140,6 +141,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     ack.status = 500;
     return NextResponse.json(ack);
   }
+
+  // An IPN means payment activity is happening — drain the recovery queue so any
+  // other stuck bookings get reconciled too. Runs after the ack is returned.
+  after(() => scheduleDuePendingPaymentRecovery("ipn"));
 
   return NextResponse.json(ack);
 }

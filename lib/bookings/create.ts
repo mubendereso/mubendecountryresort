@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { getSql } from "@/lib/db/client";
 import { getSiteOrigin } from "@/lib/env";
 import { consumeRateLimit, getClientIp } from "@/lib/rate-limit";
+import { enqueuePendingPaymentRecoverySafely } from "@/lib/payments/recovery";
 import { submitPesapalOrder, PesapalInitiationError } from "@/lib/pesapal/client";
 
 // MCR-SEC-09: cap public booking initiations per IP. Each call fans out to
@@ -188,6 +189,14 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
   } catch (err) {
     console.error("Post-initiation bookkeeping failed (non-fatal):", err);
   }
+
+  // Durably track this payment so a dropped/late Pesapal IPN is still
+  // reconciled by the recovery loop. Best-effort; never blocks the redirect.
+  await enqueuePendingPaymentRecoverySafely({
+    bookingId,
+    orderTrackingId,
+    reason: "Booking payment initiated."
+  });
 
   return { ok: true, redirectUrl, reference };
 }
