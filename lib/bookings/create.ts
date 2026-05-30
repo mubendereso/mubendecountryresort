@@ -142,25 +142,33 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
     const msg = err instanceof PesapalInitiationError
       ? err.message
       : "Payment could not be initiated. Please try again.";
+    const failureMessage = err instanceof Error ? err.message : "Unknown error";
 
-    if (attemptId) {
-      try {
+    // Pesapal rejected initiation: no tracking id was ever issued, so this
+    // booking can never be paid, verified, or recovered. Cancel it now
+    // (terminal — no payment_expired_at) instead of stranding it in
+    // pending_payment with no tracking id. Runs regardless of attemptId.
+    try {
+      await sql`
+        UPDATE bookings SET
+          status = 'cancelled',
+          payment_initiation_failure_code = 'provider_rejected',
+          payment_initiation_failure_message = ${failureMessage},
+          payment_initiation_failed_at = now()
+        WHERE id = ${bookingId}::uuid AND status = 'pending_payment'
+      `;
+
+      if (attemptId) {
         await sql`
           UPDATE payment_attempts SET
             status = 'rejected',
-            failure_message = ${err instanceof Error ? err.message : "Unknown error"},
+            failure_message = ${failureMessage},
             failure_phase = 'provider_rejected'
           WHERE id = ${attemptId}::uuid
         `;
-        await sql`
-          UPDATE bookings SET
-            payment_initiation_failure_message = ${err instanceof Error ? err.message : "Unknown error"},
-            payment_initiation_failed_at = now()
-          WHERE id = ${bookingId}::uuid
-        `;
-      } catch (logErr) {
-        console.error("Failed to log payment initiation failure:", logErr);
       }
+    } catch (logErr) {
+      console.error("Failed to cancel rejected booking initiation:", logErr);
     }
 
     console.error("Pesapal order submission failed:", err);
