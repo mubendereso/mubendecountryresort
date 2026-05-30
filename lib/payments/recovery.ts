@@ -15,6 +15,10 @@ import { getPesapalTransactionStatus } from "@/lib/pesapal/client";
 const PROCESS_LIMIT = 10;
 const BACKOFF_BASE_SECONDS = 30;
 const BACKOFF_MAX_SECONDS = 3600; // 1 hour
+// A booking still pending this long after creation is soft-cancelled (matches
+// the bakery/smokehouse 7-minute window). Soft-cancel is revivable: a late
+// payment still confirms it (see confirm_booking_payment + payment_expired_at).
+const SOFT_CANCEL_AFTER_MINUTES = 7;
 
 type RecoveryRow = {
   id: string;
@@ -88,19 +92,68 @@ async function rescheduleRecovery(row: RecoveryRow, reason: string): Promise<voi
   `;
 }
 
+// Soft-cancel a still-pending booking on timeout. Sets payment_expired_at so a
+// late payment can still revive it (confirm_booking_payment honours the marker).
+// Guarded on status so it never clobbers a booking that just got confirmed.
+async function softCancelExpiredBooking(bookingId: string): Promise<void> {
+  const sql = getSql();
+  await sql`
+    update bookings set
+      status = 'cancelled',
+      payment_expired_at = now(),
+      payment_last_verified_at = now()
+    where id = ${bookingId}::uuid and status = 'pending_payment'
+  `;
+}
+
+// Terminally cancel a booking the provider explicitly failed/reversed. Clears
+// payment_expired_at so a stray late "paid" cannot resurrect it.
+async function failBookingPayment(bookingId: string, reason: string): Promise<void> {
+  const sql = getSql();
+  await sql`
+    update bookings set
+      status = 'cancelled',
+      payment_expired_at = null,
+      payment_initiation_failure_code = 'provider_failed',
+      payment_initiation_failure_message = ${reason},
+      payment_initiation_failed_at = now(),
+      payment_last_verified_at = now()
+    where id = ${bookingId}::uuid and status in ('pending_payment', 'cancelled')
+  `;
+}
+
 async function processClaimedRecovery(row: RecoveryRow): Promise<RecoveryOutcome> {
   const sql = getSql();
 
   const [booking] = (await sql`
-    select id::text, status, order_tracking_id
+    select
+      id::text,
+      status,
+      order_tracking_id,
+      payment_expired_at,
+      (created_at <= now() - make_interval(mins => ${SOFT_CANCEL_AFTER_MINUTES})) as is_expired
     from bookings
     where id = ${row.booking_id}::uuid
     limit 1
-  `) as { id: string; status: string; order_tracking_id: string | null }[];
+  `) as {
+    id: string;
+    status: string;
+    order_tracking_id: string | null;
+    payment_expired_at: string | null;
+    is_expired: boolean;
+  }[];
 
-  // Booking gone, or already past pending_payment (confirmed/awaiting/cancelled):
-  // nothing left to recover.
-  if (!booking || booking.status !== "pending_payment") {
+  if (!booking) {
+    await completeRecovery(row.id);
+    return "completed";
+  }
+
+  const isPending = booking.status === "pending_payment";
+  // A timeout soft-cancel stays recoverable (paid-sticky). Any other state —
+  // confirmed/checked_in/etc., or a terminal cancel with no marker — is done.
+  const isSoftCancelled = booking.status === "cancelled" && booking.payment_expired_at !== null;
+
+  if (!isPending && !isSoftCancelled) {
     await completeRecovery(row.id);
     return "completed";
   }
@@ -114,7 +167,7 @@ async function processClaimedRecovery(row: RecoveryRow): Promise<RecoveryOutcome
   const status = await getPesapalTransactionStatus(trackingId);
 
   if (status.paymentStatus === "paid") {
-    // Same idempotent confirm path the IPN uses.
+    // Same idempotent confirm path the IPN uses; revives a soft-cancel.
     await sql`
       select success, requires_review, error_code
       from confirm_booking_payment(
@@ -128,10 +181,21 @@ async function processClaimedRecovery(row: RecoveryRow): Promise<RecoveryOutcome
   }
 
   if (status.paymentStatus === "failed") {
-    // Terminal at the provider (FAILED/REVERSED). Stop polling; leave the
-    // booking unconfirmed (it was never reserved — see booking-reservation rule).
+    // Provider explicitly failed/reversed → terminal cancel, no revival.
+    await failBookingPayment(row.booking_id, "Pesapal reported the payment as failed or reversed.");
     await completeRecovery(row.id);
     return "completed";
+  }
+
+  // Still pending. Soft-cancel once past the window, but keep the recovery row
+  // active so a late payment is still caught and revives the booking.
+  if (isPending && booking.is_expired) {
+    await softCancelExpiredBooking(row.booking_id);
+    await rescheduleRecovery(
+      row,
+      "Soft-cancelled after pending-payment timeout; still watching for late payment."
+    );
+    return "rescheduled";
   }
 
   await rescheduleRecovery(row, "Provider still reports pending.");

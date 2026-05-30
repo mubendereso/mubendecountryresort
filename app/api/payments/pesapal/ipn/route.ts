@@ -100,7 +100,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    if (paymentStatus === "paid" && currentStatus === "pending_payment") {
+    // Confirm on paid from pending_payment OR a soft-cancelled booking (a late
+    // IPN reviving a forgotten-tab payment). confirm_booking_payment is
+    // idempotent and only revives timeout soft-cancels (payment_expired_at set),
+    // so an explicitly/terminally cancelled booking is rejected harmlessly.
+    if (paymentStatus === "paid" && (currentStatus === "pending_payment" || currentStatus === "cancelled")) {
       // Atomically check availability and confirm. On race condition the
       // booking is placed into awaiting_confirmation for manual review.
       const [result] = (await sql`
