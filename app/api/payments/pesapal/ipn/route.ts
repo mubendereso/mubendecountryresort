@@ -1,6 +1,15 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getSql } from "@/lib/db/client";
 import { getPesapalTransactionStatus } from "@/lib/pesapal/client";
+import { consumeRateLimit } from "@/lib/rate-limit";
+
+// MCR-SEC-11: cap how often a single payment's IPN is processed. Genuine
+// Pesapal notifications for one tracking id are few; this stops repeated hits
+// from growing pesapal_ipn_events or amplifying outbound status calls. We
+// still ACK 200 when throttled so Pesapal does not treat it as an error and
+// retry-storm.
+const IPN_MAX_EVENTS = 15;
+const IPN_WINDOW_SECONDS = 600; // 10 minutes
 
 // Pesapal calls this endpoint (GET) after each payment event.
 // We must respond within seconds with the IPN acknowledgement JSON.
@@ -20,6 +29,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   if (!orderTrackingId || !merchantReference) {
     ack.status = 500;
+    return NextResponse.json(ack);
+  }
+
+  // MCR-SEC-11: throttle per (tracking id, reference) before any DB write or
+  // outbound Pesapal call. Throttled hits still return the normal 200 ack.
+  const ipnAllowed = await consumeRateLimit(
+    `ipn:${orderTrackingId}:${merchantReference}`,
+    IPN_MAX_EVENTS,
+    IPN_WINDOW_SECONDS
+  );
+  if (!ipnAllowed) {
     return NextResponse.json(ack);
   }
 

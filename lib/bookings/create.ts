@@ -2,13 +2,41 @@
 
 import { headers } from "next/headers";
 import { getSql } from "@/lib/db/client";
+import { getSiteOrigin } from "@/lib/env";
+import { consumeRateLimit, getClientIp } from "@/lib/rate-limit";
 import { submitPesapalOrder, PesapalInitiationError } from "@/lib/pesapal/client";
+
+// MCR-SEC-09: cap public booking initiations per IP. Each call fans out to
+// Neon (booking + payment_attempt rows) and Pesapal (token + order + IPN
+// registration), so an unthrottled bot is a cost/availability risk. Generous
+// enough for a guest booking several rooms; fails open if the DB is down.
+const BOOKING_IP_MAX_ATTEMPTS = 10;
+const BOOKING_IP_WINDOW_SECONDS = 600; // 10 minutes
 
 export type InitiateBookingResult =
   | { ok: true; redirectUrl: string; reference: string }
   | { ok: false; error: string };
 
 export async function initiateBookingAction(formData: FormData): Promise<InitiateBookingResult> {
+  // MCR-SEC-09: honeypot — humans never fill the hidden `website` field.
+  if (String(formData.get("website") ?? "").trim().length > 0) {
+    return { ok: false, error: "Your booking could not be processed. Please try again." };
+  }
+
+  // MCR-SEC-09: per-IP throttle before any DB / Pesapal work.
+  const clientIp = getClientIp(await headers());
+  const allowed = await consumeRateLimit(
+    `booking:ip:${clientIp}`,
+    BOOKING_IP_MAX_ATTEMPTS,
+    BOOKING_IP_WINDOW_SECONDS
+  );
+  if (!allowed) {
+    return {
+      ok: false,
+      error: "Too many booking attempts. Please wait a few minutes and try again."
+    };
+  }
+
   const roomTypeSlug = String(formData.get("roomTypeSlug") ?? "").trim();
   const checkIn = String(formData.get("checkIn") ?? "").trim();
   const checkOut = String(formData.get("checkOut") ?? "").trim();
@@ -87,11 +115,10 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
     console.error("payment_attempt insert failed (non-fatal):", err);
   }
 
-  // Step 3: Derive request origin for Pesapal callback + IPN URLs
-  const hdrs = await headers();
-  const host = hdrs.get("host") ?? "mubendecountryresort.workers.dev";
-  const proto = hdrs.get("x-forwarded-proto") ?? "https";
-  const requestOrigin = `${proto}://${host}`;
+  // Step 3: Use the pinned canonical origin for Pesapal callback + IPN URLs.
+  // MCR-SEC-08: never derive these from the request Host header — a forged
+  // Host could register attacker-controlled callback/IPN URLs with Pesapal.
+  const requestOrigin = getSiteOrigin();
 
   // Step 4: Submit order to Pesapal
   let orderTrackingId: string;

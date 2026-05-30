@@ -52,6 +52,16 @@ export default function BookForm({
 
   return (
     <form onSubmit={handleSubmit} className="mt-8 grid gap-6">
+      {/* Honeypot: hidden from humans; bots that fill it are rejected server-side. */}
+      <input
+        type="text"
+        name="website"
+        tabIndex={-1}
+        autoComplete="off"
+        aria-hidden="true"
+        className="hidden"
+      />
+
       {/* Room selection */}
       <div className="grid gap-2">
         <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Room Type</label>
@@ -227,8 +237,8 @@ export default function BookForm({
       </button>
 
       <p className="text-center text-xs text-zinc-400">
-        You will be redirected to Pesapal to complete payment securely. Your reservation is
-        held for 15 minutes.
+        You will be redirected to Pesapal to complete payment securely. Your room is reserved
+        only once payment succeeds.
       </p>
     </form>
   );

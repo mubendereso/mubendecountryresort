@@ -3,16 +3,14 @@ import type { MetadataRoute } from 'next';
 import { experiences } from '@/app/experiences/data';
 import { getRoomSlugs } from '@/lib/rooms/data';
 import { services } from '@/app/services/data';
+import { getSiteOrigin } from '@/lib/env';
 
 // Generated at request time, not build time: room slugs come from the DB and
 // DATABASE_URL is unavailable during the static build.
 export const dynamic = 'force-dynamic';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const siteUrl =
-    process.env.SITE_URL ??
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    'https://kiasili-ventures.com';
+  const siteUrl = getSiteOrigin();
   const now = new Date();
 
   const routes = ['', '/rooms', '/gallery', '/amenities', '/contact'];

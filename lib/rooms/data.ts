@@ -5,8 +5,15 @@ import { getSql } from "@/lib/db/client";
 // Storefront room content is sourced from the shared `room_types` table, which
 // the admin app manages (titles, copy, pricing, cover image, gallery). Keeping
 // this the single source of truth means edits in admin reflect on the
-// storefront. Pages that consume these helpers render with `force-dynamic` so a
-// fresh DB read happens per request (no stale static cache).
+// storefront.
+//
+// MCR-PERF-01: pages still render `force-dynamic`, but these reads are memoized
+// in-isolate for a short TTL so anonymous browsing traffic does not hit Neon on
+// every request (cost / cold-start / DoS-amplification). A warm Worker isolate
+// serves repeats from memory; Neon is queried at most ~once per TTL per isolate.
+// Trade-off: admin edits surface after at most CACHE_TTL_MS. This is deliberately
+// a per-isolate memo, not shared state — see open-next.config.ts (incremental
+// cache disabled) for why ISR isn't used here.
 
 export type Room = {
   slug: string;
@@ -57,6 +64,22 @@ type RoomTypeRow = {
   gallery: string[] | null;
 };
 
+// In-isolate read-through cache (MCR-PERF-01). Tiny key space (a handful of
+// rooms + gallery variants), so no eviction is needed beyond TTL expiry.
+const CACHE_TTL_MS = 60_000;
+type CacheEntry<T> = { at: number; value: T };
+const readCache = new Map<string, CacheEntry<unknown>>();
+
+async function cachedRead<T>(key: string, loader: () => Promise<T>): Promise<T> {
+  const hit = readCache.get(key) as CacheEntry<T> | undefined;
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
+    return hit.value;
+  }
+  const value = await loader();
+  readCache.set(key, { at: Date.now(), value });
+  return value;
+}
+
 function formatPrice(priceUgx: number): string {
   return `${new Intl.NumberFormat("en-UG").format(priceUgx)} UGX / night`;
 }
@@ -88,47 +111,55 @@ function toDetailedRoom(row: RoomTypeRow): DetailedRoom {
 }
 
 export async function getRooms(): Promise<Room[]> {
-  const sql = getSql();
-  const rows = (await sql`
-    select slug, title, description, overview, price_ugx, cover_image_url,
-           details, amenities, dining_hours, gallery
-    from room_types
-    where is_published = true
-    order by sort_order asc, title asc
-  `) as RoomTypeRow[];
-  return rows.map(toRoom);
+  return cachedRead("rooms", async () => {
+    const sql = getSql();
+    const rows = (await sql`
+      select slug, title, description, overview, price_ugx, cover_image_url,
+             details, amenities, dining_hours, gallery
+      from room_types
+      where is_published = true
+      order by sort_order asc, title asc
+    `) as RoomTypeRow[];
+    return rows.map(toRoom);
+  });
 }
 
 export async function getDetailedRooms(): Promise<DetailedRoom[]> {
-  const sql = getSql();
-  const rows = (await sql`
-    select slug, title, description, overview, price_ugx, cover_image_url,
-           details, amenities, dining_hours, gallery
-    from room_types
-    where is_published = true
-    order by sort_order asc, title asc
-  `) as RoomTypeRow[];
-  return rows.map(toDetailedRoom);
+  return cachedRead("detailedRooms", async () => {
+    const sql = getSql();
+    const rows = (await sql`
+      select slug, title, description, overview, price_ugx, cover_image_url,
+             details, amenities, dining_hours, gallery
+      from room_types
+      where is_published = true
+      order by sort_order asc, title asc
+    `) as RoomTypeRow[];
+    return rows.map(toDetailedRoom);
+  });
 }
 
 export async function getRoomBySlug(slug: string): Promise<DetailedRoom | null> {
-  const sql = getSql();
-  const rows = (await sql`
-    select slug, title, description, overview, price_ugx, cover_image_url,
-           details, amenities, dining_hours, gallery
-    from room_types
-    where slug = ${slug} and is_published = true
-    limit 1
-  `) as RoomTypeRow[];
-  return rows[0] ? toDetailedRoom(rows[0]) : null;
+  return cachedRead(`room:${slug}`, async () => {
+    const sql = getSql();
+    const rows = (await sql`
+      select slug, title, description, overview, price_ugx, cover_image_url,
+             details, amenities, dining_hours, gallery
+      from room_types
+      where slug = ${slug} and is_published = true
+      limit 1
+    `) as RoomTypeRow[];
+    return rows[0] ? toDetailedRoom(rows[0]) : null;
+  });
 }
 
 export async function getRoomSlugs(): Promise<string[]> {
-  const sql = getSql();
-  const rows = (await sql`
-    select slug from room_types where is_published = true order by sort_order asc
-  `) as { slug: string }[];
-  return rows.map((r) => r.slug);
+  return cachedRead("roomSlugs", async () => {
+    const sql = getSql();
+    const rows = (await sql`
+      select slug from room_types where is_published = true order by sort_order asc
+    `) as { slug: string }[];
+    return rows.map((r) => r.slug);
+  });
 }
 
 function getKampalaWeekIndex(date = new Date()): number {
@@ -148,8 +179,11 @@ function compactImagePool(images: string[]): string[] {
 }
 
 export async function getResortGalleryImages(limit?: number): Promise<string[]> {
-  const sql = getSql();
-  const rows = (await sql`
+  // Cache only the DB-derived pool; the weekly rotation + limit slice are cheap
+  // and stay correct within the TTL (the Kampala week index is constant over 60s).
+  const pooled = await cachedRead("galleryPool", async () => {
+    const sql = getSql();
+    const rows = (await sql`
     select image_url
     from (
       select rt.sort_order * 1000 as sort_key, rt.cover_image_url as image_url
@@ -172,8 +206,9 @@ export async function getResortGalleryImages(limit?: number): Promise<string[]> 
     where image_url is not null and btrim(image_url) <> ''
     order by sort_key asc, image_url asc
   `) as { image_url: string }[];
+    return compactImagePool(rows.map((row) => row.image_url));
+  });
 
-  const pooled = compactImagePool(rows.map((row) => row.image_url));
   const rotated = rotateForCurrentWeek(pooled.length > 0 ? pooled : FALLBACK_GALLERY_IMAGES);
   return typeof limit === "number" ? rotated.slice(0, limit) : rotated;
 }

@@ -1,10 +1,8 @@
 import type { MetadataRoute } from 'next';
+import { getSiteOrigin } from '@/lib/env';
 
 export default function robots(): MetadataRoute.Robots {
-  const siteUrl =
-    process.env.SITE_URL ??
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    'https://kiasili-ventures.com';
+  const siteUrl = getSiteOrigin();
 
   return {
     rules: [

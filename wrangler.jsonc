@@ -25,7 +25,10 @@
 		"binding": "IMAGES"
 	},
 	"vars": {
-		"PESAPAL_BASE_URL": "https://cybqa.pesapal.com/pesapalv3"
+		"PESAPAL_BASE_URL": "https://cybqa.pesapal.com/pesapalv3",
+		// Canonical public origin (MCR-SEC-08). Pesapal callback/IPN URLs and
+		// metadata routes derive from this, never from the request Host header.
+		"SITE_URL": "https://mubendecountryresort.mubendecountryresort.workers.dev"
 	},
 	"observability": {
 		"enabled": false,
