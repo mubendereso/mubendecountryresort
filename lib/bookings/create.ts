@@ -10,7 +10,7 @@ import { submitPesapalOrder, PesapalInitiationError } from "@/lib/pesapal/client
 // MCR-SEC-09: cap public booking initiations per IP. Each call fans out to
 // Neon (booking + payment_attempt rows) and Pesapal (token + order + IPN
 // registration), so an unthrottled bot is a cost/availability risk. Generous
-// enough for a guest booking several rooms; fails open if the DB is down.
+// enough for a guest booking several rooms.
 const BOOKING_IP_MAX_ATTEMPTS = 10;
 const BOOKING_IP_WINDOW_SECONDS = 600; // 10 minutes
 
@@ -94,7 +94,9 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
     return { ok: false, error: "Booking could not be created. Please try again." };
   }
 
-  // Step 2: Record payment attempt
+  // Step 2: Record and attach the payment attempt before contacting Pesapal.
+  // If this local binding cannot be persisted, do not create a provider order:
+  // a later paid callback/IPN must be able to prove it belongs to this booking.
   let attemptId: string | null = null;
   try {
     const [attempt] = (await sql`
@@ -102,19 +104,46 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
       VALUES (${bookingId}::uuid, ${reference}, ${quotedTotalUgx}, now())
       RETURNING id
     `) as { id: string }[];
-    attemptId = attempt?.id ?? null;
+    if (!attempt?.id) {
+      throw new Error("payment_attempt insert returned no id");
+    }
+    attemptId = attempt.id;
 
-    if (attemptId) {
+    await sql`
+      UPDATE bookings SET
+        payment_provider = 'pesapal',
+        active_payment_attempt_id = ${attemptId}::uuid,
+        payment_initiation_attempted_at = now()
+      WHERE id = ${bookingId}::uuid
+    `;
+  } catch (err) {
+    const failureMessage = err instanceof Error ? err.message : "Unknown error";
+
+    try {
       await sql`
         UPDATE bookings SET
-          payment_provider = 'pesapal',
-          active_payment_attempt_id = ${attemptId}::uuid,
-          payment_initiation_attempted_at = now()
-        WHERE id = ${bookingId}::uuid
+          status = 'cancelled',
+          payment_initiation_failure_code = 'pre_provider',
+          payment_initiation_failure_message = ${failureMessage},
+          payment_initiation_failed_at = now()
+        WHERE id = ${bookingId}::uuid AND status = 'pending_payment'
       `;
+
+      if (attemptId) {
+        await sql`
+          UPDATE payment_attempts SET
+            status = 'failed',
+            failure_message = ${failureMessage},
+            failure_phase = 'pre_provider'
+          WHERE id = ${attemptId}::uuid
+        `;
+      }
+    } catch (logErr) {
+      console.error("Failed to cancel pre-provider payment binding failure:", logErr);
     }
-  } catch (err) {
-    console.error("payment_attempt insert failed (non-fatal):", err);
+
+    console.error("Payment attempt binding failed before Pesapal order:", err);
+    return { ok: false, error: "Payment could not be prepared. Please try again." };
   }
 
   // Step 3: Use the pinned canonical origin for Pesapal callback + IPN URLs.
@@ -159,15 +188,13 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
         WHERE id = ${bookingId}::uuid AND status = 'pending_payment'
       `;
 
-      if (attemptId) {
-        await sql`
-          UPDATE payment_attempts SET
-            status = 'rejected',
-            failure_message = ${failureMessage},
-            failure_phase = 'provider_rejected'
-          WHERE id = ${attemptId}::uuid
-        `;
-      }
+      await sql`
+        UPDATE payment_attempts SET
+          status = 'rejected',
+          failure_message = ${failureMessage},
+          failure_phase = 'provider_rejected'
+        WHERE id = ${attemptId}::uuid
+      `;
     } catch (logErr) {
       console.error("Failed to cancel rejected booking initiation:", logErr);
     }
@@ -176,27 +203,54 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
     return { ok: false, error: msg };
   }
 
-  // Step 5: Persist tracking ID and enqueue recovery
+  // Step 5: Persist tracking ID before redirecting the guest. This is not
+  // best-effort: IPN/callback confirmation requires the stored booking and
+  // active payment attempt to match the Pesapal transaction exactly.
   try {
     await sql`
       UPDATE bookings SET
         order_tracking_id = ${orderTrackingId},
+        active_payment_attempt_id = ${attemptId}::uuid,
         payment_redirect_url = ${redirectUrl}
       WHERE id = ${bookingId}::uuid
     `;
 
-    if (attemptId) {
+    await sql`
+      UPDATE payment_attempts SET
+        status = 'initiated',
+        provider_reference = ${orderTrackingId},
+        redirect_url = ${redirectUrl},
+        response_received_at = now()
+      WHERE id = ${attemptId}::uuid
+    `;
+  } catch (err) {
+    const failureMessage = err instanceof Error ? err.message : "Unknown error";
+
+    try {
+      await sql`
+        UPDATE bookings SET
+          payment_initiation_failure_code = 'post_provider_unknown',
+          payment_initiation_failure_message = ${failureMessage},
+          payment_initiation_failed_at = now()
+        WHERE id = ${bookingId}::uuid
+      `;
+
       await sql`
         UPDATE payment_attempts SET
-          status = 'initiated',
-          provider_reference = ${orderTrackingId},
-          redirect_url = ${redirectUrl},
-          response_received_at = now()
+          status = 'failed',
+          failure_message = ${failureMessage},
+          failure_phase = 'post_provider_unknown'
         WHERE id = ${attemptId}::uuid
       `;
+    } catch (logErr) {
+      console.error("Failed to record post-initiation bookkeeping failure:", logErr);
     }
-  } catch (err) {
-    console.error("Post-initiation bookkeeping failed (non-fatal):", err);
+
+    console.error("Post-initiation bookkeeping failed; refusing Pesapal redirect:", err);
+    return {
+      ok: false,
+      error: "Payment was created but could not be linked safely. Please contact the resort before paying."
+    };
   }
 
   // Durably track this payment so a dropped/late Pesapal IPN is still
