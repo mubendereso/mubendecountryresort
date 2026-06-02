@@ -1,4 +1,4 @@
-import { getSql } from "@/lib/db/client";
+import { getRooms } from "@/lib/rooms/data";
 import BookForm from "./book-form";
 
 export const dynamic = "force-dynamic";
@@ -11,13 +11,7 @@ export default async function BookPage({
   const { room } = await searchParams;
   const initialSlug = Array.isArray(room) ? room[0] : room;
 
-  const sql = getSql();
-  const roomTypes = (await sql`
-    SELECT id, slug, title, description, price_ugx
-    FROM room_types
-    WHERE is_published = true
-    ORDER BY sort_order, title
-  `) as { id: string; slug: string; title: string; description: string | null; price_ugx: number }[];
+  const roomTypes = await getRooms();
 
   return (
     <section className="section-space">

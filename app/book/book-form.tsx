@@ -3,19 +3,18 @@
 import { useTransition, useState } from "react";
 import { initiateBookingAction } from "@/lib/bookings/create";
 
-type RoomType = {
-  id: string;
+type BookRoom = {
   slug: string;
   title: string;
-  description: string | null;
-  price_ugx: number;
+  description: string;
+  priceUgx: number;
 };
 
 export default function BookForm({
   roomTypes,
   initialSlug
 }: {
-  roomTypes: RoomType[];
+  roomTypes: BookRoom[];
   initialSlug?: string;
 }) {
   const [pending, startTransition] = useTransition();
@@ -74,7 +73,7 @@ export default function BookForm({
         >
           {roomTypes.map((r) => (
             <option key={r.slug} value={r.slug}>
-              {r.title} — {fmtUgx(r.price_ugx)} / night
+              {r.title} — {fmtUgx(r.priceUgx)} / night
             </option>
           ))}
         </select>
@@ -214,7 +213,7 @@ export default function BookForm({
       {selectedRoom && (
         <div className="rounded-2xl border border-stoneWarm-100 bg-stoneWarm-50 px-5 py-4 text-sm dark:border-zinc-700 dark:bg-zinc-800">
           <p className="text-zinc-600 dark:text-zinc-300">
-            Rate: {fmtUgx(selectedRoom.price_ugx)} / night
+            Rate: {fmtUgx(selectedRoom.priceUgx)} / night
           </p>
           <p className="mt-1 text-xs text-zinc-400">
             Final total is calculated from your selected dates.
