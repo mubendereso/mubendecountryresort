@@ -160,6 +160,7 @@ export default function BookForm({
             name="guestFullName"
             type="text"
             autoComplete="name"
+            maxLength={120}
             required
             placeholder="Your full name"
             className="w-full rounded-2xl border border-stoneWarm-200 bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-oliveMuted-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
@@ -175,6 +176,7 @@ export default function BookForm({
               name="guestEmail"
               type="email"
               autoComplete="email"
+              maxLength={200}
               required
               placeholder="you@example.com"
               className="w-full rounded-2xl border border-stoneWarm-200 bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-oliveMuted-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
@@ -189,6 +191,7 @@ export default function BookForm({
               name="guestPhone"
               type="tel"
               autoComplete="tel"
+              maxLength={40}
               placeholder="+256 …"
               className="w-full rounded-2xl border border-stoneWarm-200 bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-oliveMuted-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
             />
@@ -203,6 +206,7 @@ export default function BookForm({
             id="specialRequests"
             name="specialRequests"
             rows={3}
+            maxLength={1000}
             placeholder="Dietary needs, accessibility requirements, celebrations…"
             className="w-full rounded-2xl border border-stoneWarm-200 bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-oliveMuted-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
           />

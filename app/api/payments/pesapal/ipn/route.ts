@@ -15,6 +15,73 @@ import { scheduleDuePendingPaymentRecovery } from "@/lib/payments/recovery";
 const IPN_MAX_EVENTS = 15;
 const IPN_WINDOW_SECONDS = 600; // 10 minutes
 
+function isDedupeSupportMissing(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.message.includes("dedupe_key") ||
+    error.message.includes("pesapal_ipn_events_dedupe_uidx")
+  );
+}
+
+async function logIpnEvent(
+  sql: ReturnType<typeof getSql>,
+  {
+    orderTrackingId,
+    merchantReference,
+    notificationType
+  }: { orderTrackingId: string; merchantReference: string; notificationType: string }
+): Promise<string | null> {
+  const rawPayload = JSON.stringify({ orderTrackingId, merchantReference, notificationType });
+  const ipnDedupeKey = [
+    orderTrackingId.trim(),
+    merchantReference.trim(),
+    notificationType.trim()
+  ].join(":");
+
+  try {
+    const [event] = (await sql`
+      INSERT INTO pesapal_ipn_events (
+        order_tracking_id,
+        notification_type,
+        dedupe_key,
+        raw_payload
+      )
+      VALUES (
+        ${orderTrackingId},
+        ${notificationType},
+        ${ipnDedupeKey},
+        ${rawPayload}::jsonb
+      )
+      ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL
+      DO NOTHING
+      RETURNING id
+    `) as { id: string }[];
+
+    if (event?.id) return event.id;
+
+    const [existing] = (await sql`
+      SELECT id
+      FROM pesapal_ipn_events
+      WHERE dedupe_key = ${ipnDedupeKey}
+      LIMIT 1
+    `) as { id: string }[];
+    return existing?.id ?? null;
+  } catch (error) {
+    if (!isDedupeSupportMissing(error)) throw error;
+
+    const [event] = (await sql`
+      INSERT INTO pesapal_ipn_events (order_tracking_id, notification_type, raw_payload)
+      VALUES (
+        ${orderTrackingId},
+        ${notificationType},
+        ${rawPayload}::jsonb
+      )
+      RETURNING id
+    `) as { id: string }[];
+    return event?.id ?? null;
+  }
+}
+
 // Pesapal calls this endpoint (GET) after each payment event.
 // We must respond within seconds with the IPN acknowledgement JSON.
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -54,16 +121,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // Log the raw IPN event first (idempotent insert)
   let ipnEventId: string | null = null;
   try {
-    const [event] = (await sql`
-      INSERT INTO pesapal_ipn_events (order_tracking_id, notification_type, raw_payload)
-      VALUES (
-        ${orderTrackingId},
-        ${notificationType},
-        ${JSON.stringify({ orderTrackingId, merchantReference, notificationType })}::jsonb
-      )
-      RETURNING id
-    `) as { id: string }[];
-    ipnEventId = event?.id ?? null;
+    ipnEventId = await logIpnEvent(sql, { orderTrackingId, merchantReference, notificationType });
   } catch (err) {
     console.error("IPN: failed to log event:", err);
     ack.status = 500;

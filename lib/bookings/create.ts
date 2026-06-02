@@ -14,6 +14,11 @@ import { submitPesapalOrder, PesapalInitiationError } from "@/lib/pesapal/client
 // enough for a guest booking several rooms.
 const BOOKING_IP_MAX_ATTEMPTS = 10;
 const BOOKING_IP_WINDOW_SECONDS = 600; // 10 minutes
+const MAX_ROOM_TYPE_SLUG_LENGTH = 120;
+const MAX_GUEST_NAME_LENGTH = 120;
+const MAX_GUEST_EMAIL_LENGTH = 200;
+const MAX_GUEST_PHONE_LENGTH = 40;
+const MAX_SPECIAL_REQUESTS_LENGTH = 1000;
 
 export type InitiateBookingResult =
   | { ok: true; redirectUrl: string; reference: string }
@@ -54,6 +59,21 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
   if (!checkIn || !checkOut) return { ok: false, error: "Please select check-in and check-out dates." };
   if (checkIn >= checkOut) return { ok: false, error: "Check-out must be after check-in." };
   if (!guestFullName || guestFullName.length < 2) return { ok: false, error: "Please enter your full name." };
+  if (roomTypeSlug.length > MAX_ROOM_TYPE_SLUG_LENGTH) {
+    return { ok: false, error: "Please select a valid room type." };
+  }
+  if (guestFullName.length > MAX_GUEST_NAME_LENGTH) {
+    return { ok: false, error: "Please enter a shorter full name." };
+  }
+  if (guestEmail.length > MAX_GUEST_EMAIL_LENGTH) {
+    return { ok: false, error: "Please enter a shorter email address." };
+  }
+  if ((guestPhone?.length ?? 0) > MAX_GUEST_PHONE_LENGTH) {
+    return { ok: false, error: "Please enter a shorter phone number." };
+  }
+  if ((specialRequests?.length ?? 0) > MAX_SPECIAL_REQUESTS_LENGTH) {
+    return { ok: false, error: "Please keep special requests under 1000 characters." };
+  }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestEmail)) return { ok: false, error: "Please enter a valid email address." };
 
   const sql = getSql();
