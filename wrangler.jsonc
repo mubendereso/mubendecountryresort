@@ -1,6 +1,6 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"main": ".open-next/worker.js",
+	"main": "worker.mjs",
 	"name": "mubendecountryresort",
 	"compatibility_date": "2026-04-20",
 	"compatibility_flags": [
@@ -23,6 +23,23 @@
 		// Enable image optimization
 		// see https://opennext.js.org/cloudflare/howtos/image
 		"binding": "IMAGES"
+	},
+	"queues": {
+		"producers": [
+			{
+				"binding": "PAYMENT_RECOVERY_QUEUE",
+				"queue": "mcr-payment-recovery"
+			}
+		],
+		"consumers": [
+			{
+				"queue": "mcr-payment-recovery",
+				"max_batch_size": 5,
+				"max_batch_timeout": 30,
+				"max_retries": 5,
+				"retry_delay": 300
+			}
+		]
 	},
 	"vars": {
 		"PESAPAL_BASE_URL": "https://cybqa.pesapal.com/pesapalv3",

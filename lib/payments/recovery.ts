@@ -216,7 +216,7 @@ async function processClaimedRecovery(row: RecoveryRow): Promise<RecoveryOutcome
  */
 export async function reconcileDuePendingPayments(
   trigger: string,
-  options?: { limit?: number }
+  options?: { limit?: number; bookingId?: string }
 ): Promise<PendingPaymentRecoveryStats> {
   const stats: PendingPaymentRecoveryStats = {
     trigger,
@@ -230,7 +230,11 @@ export async function reconcileDuePendingPayments(
     const sql = getSql();
     const claimed = (await sql`
       select id::text, booking_id::text, order_tracking_id, attempt_count
-      from claim_pending_payment_recoveries(${options?.limit ?? PROCESS_LIMIT}, ${trigger}, null)
+      from claim_pending_payment_recoveries(
+        ${options?.limit ?? PROCESS_LIMIT},
+        ${trigger},
+        ${options?.bookingId ?? null}::uuid
+      )
     `) as RecoveryRow[];
     stats.claimed = claimed.length;
 

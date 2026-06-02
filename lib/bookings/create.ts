@@ -5,6 +5,7 @@ import { getSql } from "@/lib/db/client";
 import { getSiteOrigin } from "@/lib/env";
 import { consumeRateLimit, getClientIp } from "@/lib/rate-limit";
 import { enqueuePendingPaymentRecoverySafely } from "@/lib/payments/recovery";
+import { enqueuePaymentRecoveryCheckSafely } from "@/lib/payments/recovery-queue";
 import { submitPesapalOrder, PesapalInitiationError } from "@/lib/pesapal/client";
 
 // MCR-SEC-09: cap public booking initiations per IP. Each call fans out to
@@ -260,6 +261,15 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
     orderTrackingId,
     reason: "Booking payment initiated."
   });
+  await enqueuePaymentRecoveryCheckSafely(
+    {
+      bookingId,
+      reference,
+      orderTrackingId,
+      paymentAttemptId: attemptId
+    },
+    { reason: "Booking payment initiated." }
+  );
 
   return { ok: true, redirectUrl, reference };
 }
