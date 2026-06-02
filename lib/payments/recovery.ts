@@ -2,6 +2,7 @@ import "server-only";
 
 import { getSql } from "@/lib/db/client";
 import { getPesapalTransactionStatus } from "@/lib/pesapal/client";
+import { verifyPesapalPaymentForBooking } from "@/lib/payments/binding";
 
 // Durable pending-payment recovery (ported in shape from
 // thesmokehouse/lib/payments/order-payments.ts). The DB plumbing already exists
@@ -167,13 +168,20 @@ async function processClaimedRecovery(row: RecoveryRow): Promise<RecoveryOutcome
   const status = await getPesapalTransactionStatus(trackingId);
 
   if (status.paymentStatus === "paid") {
+    const verifiedPayment = await verifyPesapalPaymentForBooking({
+      bookingId: row.booking_id,
+      orderTrackingId: trackingId,
+      transaction: status
+    });
+
     // Same idempotent confirm path the IPN uses; revives a soft-cancel.
     await sql`
       select success, requires_review, error_code
       from confirm_booking_payment(
         ${row.booking_id}::uuid,
         ${trackingId},
-        ${status.confirmationCode}
+        ${status.confirmationCode},
+        ${verifiedPayment.amountUgx}::bigint
       )
     `;
     await completeRecovery(row.id);

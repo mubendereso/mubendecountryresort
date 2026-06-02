@@ -1,6 +1,9 @@
 import { after, type NextRequest, NextResponse } from "next/server";
 import { getSql } from "@/lib/db/client";
-import { getPesapalTransactionStatus } from "@/lib/pesapal/client";
+import {
+  PaymentBindingError,
+  verifyPesapalPaymentForBooking
+} from "@/lib/payments/binding";
 import { consumeRateLimit } from "@/lib/rate-limit";
 import { scheduleDuePendingPaymentRecovery } from "@/lib/payments/recovery";
 
@@ -33,12 +36,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(ack);
   }
 
-  // MCR-SEC-11: throttle per (tracking id, reference) before any DB write or
-  // outbound Pesapal call. Throttled hits still return the normal 200 ack.
+  // MCR-SEC-11 / MCR-NEW-07: throttle per tracking id before any DB write or
+  // outbound Pesapal call. The merchant reference is attacker-controlled, so it
+  // must not be part of the limiter key.
   const ipnAllowed = await consumeRateLimit(
-    `ipn:${orderTrackingId}:${merchantReference}`,
+    `ipn:${orderTrackingId}`,
     IPN_MAX_EVENTS,
-    IPN_WINDOW_SECONDS
+    IPN_WINDOW_SECONDS,
+    { failOpen: false }
   );
   if (!ipnAllowed) {
     return NextResponse.json(ack);
@@ -65,39 +70,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(ack);
   }
 
-  // Look up booking by our merchant reference
-  let bookingId: string | null = null;
-  let currentStatus: string | null = null;
+  let verifiedPayment: Awaited<ReturnType<typeof verifyPesapalPaymentForBooking>>;
   try {
-    const [booking] = (await sql`
-      SELECT id, status FROM bookings WHERE reference = ${merchantReference} LIMIT 1
-    `) as { id: string; status: string }[];
-    bookingId = booking?.id ?? null;
-    currentStatus = booking?.status ?? null;
+    verifiedPayment = await verifyPesapalPaymentForBooking({
+      orderTrackingId,
+      merchantReference
+    });
   } catch (err) {
-    console.error("IPN: booking lookup failed:", err);
+    if (err instanceof PaymentBindingError) {
+      console.error("IPN: payment binding rejected:", err.code, merchantReference, orderTrackingId);
+    } else {
+      console.error("IPN: payment verification failed:", err);
+    }
     ack.status = 500;
     return NextResponse.json(ack);
   }
 
-  if (!bookingId) {
-    console.error("IPN: no booking found for reference:", merchantReference);
-    ack.status = 500;
-    return NextResponse.json(ack);
-  }
-
-  // Verify payment status with Pesapal
-  let paymentStatus: "pending" | "paid" | "failed";
-  let confirmationCode: string | null = null;
-  try {
-    const result = await getPesapalTransactionStatus(orderTrackingId);
-    paymentStatus = result.paymentStatus;
-    confirmationCode = result.confirmationCode;
-  } catch (err) {
-    console.error("IPN: getPesapalTransactionStatus failed:", err);
-    ack.status = 500;
-    return NextResponse.json(ack);
-  }
+  const { bookingId, currentStatus, transaction } = verifiedPayment;
+  const paymentStatus = transaction.paymentStatus;
+  const confirmationCode = transaction.confirmationCode;
 
   try {
     // Confirm on paid from pending_payment OR a soft-cancelled booking (a late
@@ -112,7 +103,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         FROM confirm_booking_payment(
           ${bookingId}::uuid,
           ${orderTrackingId},
-          ${confirmationCode}
+          ${confirmationCode},
+          ${verifiedPayment.amountUgx}::bigint
         )
       `) as { success: boolean; requires_review: boolean; error_code: string | null }[];
 
@@ -131,9 +123,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         UPDATE payment_attempts SET
           verified_payment_status = 'paid',
           verified_at = now(),
-          last_verification_response = ${JSON.stringify({ paymentStatus, confirmationCode })}::jsonb
-        WHERE booking_id = ${bookingId}::uuid
-          AND (provider_reference = ${orderTrackingId} OR merchant_reference = ${merchantReference})
+          last_verification_response = ${JSON.stringify(transaction.rawResponse)}::jsonb
+        WHERE id = ${verifiedPayment.attemptId}::uuid
       `;
     }
 

@@ -48,7 +48,8 @@ export async function submitContactFormAction(
   const allowed = await consumeRateLimit(
     `contact:ip:${clientIp}`,
     CONTACT_IP_MAX_ATTEMPTS,
-    CONTACT_IP_WINDOW_SECONDS
+    CONTACT_IP_WINDOW_SECONDS,
+    { failOpen: false }
   );
   if (!allowed) {
     return {

@@ -47,7 +47,8 @@ export function getClientIp(headers: Headers): string {
 export async function consumeRateLimit(
   key: string,
   max: number,
-  windowSeconds: number
+  windowSeconds: number,
+  options?: { failOpen?: boolean }
 ): Promise<boolean> {
   try {
     const sql = getSql();
@@ -56,7 +57,11 @@ export async function consumeRateLimit(
     `) as { allowed: boolean }[];
     return rows[0]?.allowed ?? true;
   } catch (error) {
-    console.error("consumeRateLimit failed; allowing request (fail-open):", error);
-    return true;
+    const failOpen = options?.failOpen ?? true;
+    console.error(
+      `consumeRateLimit failed; ${failOpen ? "allowing" : "blocking"} request:`,
+      error
+    );
+    return failOpen;
   }
 }

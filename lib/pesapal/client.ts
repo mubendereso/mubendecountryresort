@@ -31,6 +31,7 @@ type PesapalTransactionStatusResponse = {
   order_tracking_id?: string | null;
   merchant_reference?: string | null;
   amount?: string | number | null;
+  currency?: string | null;
   payment_method?: string | null;
 };
 
@@ -214,6 +215,18 @@ export async function submitPesapalOrder(input: {
 
 export type NormalizedPaymentStatus = "pending" | "paid" | "failed";
 
+export type PesapalTransactionStatus = {
+  orderTrackingId: string;
+  providerOrderTrackingId: string | null;
+  paymentStatus: NormalizedPaymentStatus;
+  providerStatus: string | null;
+  confirmationCode: string | null;
+  merchantReference: string | null;
+  amount: string | number | null;
+  currency: string | null;
+  rawResponse: PesapalTransactionStatusResponse;
+};
+
 export function normalizePesapalStatus(raw: string | null | undefined): NormalizedPaymentStatus {
   const s = raw?.trim().toUpperCase();
   if (s === "COMPLETED") return "paid";
@@ -221,7 +234,7 @@ export function normalizePesapalStatus(raw: string | null | undefined): Normaliz
   return "pending";
 }
 
-export async function getPesapalTransactionStatus(orderTrackingId: string) {
+export async function getPesapalTransactionStatus(orderTrackingId: string): Promise<PesapalTransactionStatus> {
   const url = new URL(`${getBaseUrl()}/api/Transactions/GetTransactionStatus`);
   url.searchParams.set("orderTrackingId", orderTrackingId);
 
@@ -242,10 +255,13 @@ export async function getPesapalTransactionStatus(orderTrackingId: string) {
 
   return {
     orderTrackingId,
+    providerOrderTrackingId: payload.order_tracking_id ?? null,
     paymentStatus: normalizePesapalStatus(payload.payment_status_description),
     providerStatus: payload.payment_status_description ?? null,
     confirmationCode: payload.confirmation_code ?? null,
     merchantReference: payload.merchant_reference ?? null,
+    amount: payload.amount ?? null,
+    currency: payload.currency ?? null,
     rawResponse: payload
   };
 }

@@ -29,7 +29,8 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
   const allowed = await consumeRateLimit(
     `booking:ip:${clientIp}`,
     BOOKING_IP_MAX_ATTEMPTS,
-    BOOKING_IP_WINDOW_SECONDS
+    BOOKING_IP_WINDOW_SECONDS,
+    { failOpen: false }
   );
   if (!allowed) {
     return {
