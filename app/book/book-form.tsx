@@ -11,6 +11,24 @@ type BookRoom = {
   priceUgx: number;
 };
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function addDays(isoDate: string, days: number) {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().split("T")[0];
+}
+
+function countNights(checkIn: string, checkOut: string) {
+  if (!checkIn || !checkOut || checkOut <= checkIn) return 0;
+
+  const checkInTime = Date.parse(`${checkIn}T00:00:00Z`);
+  const checkOutTime = Date.parse(`${checkOut}T00:00:00Z`);
+
+  if (!Number.isFinite(checkInTime) || !Number.isFinite(checkOutTime)) return 0;
+  return Math.max(0, Math.round((checkOutTime - checkInTime) / MS_PER_DAY));
+}
+
 export default function BookForm({
   roomTypes,
   initialSlug,
@@ -22,19 +40,32 @@ export default function BookForm({
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const today = new Date().toISOString().split("T")[0];
+  const tomorrow = addDays(today, 1);
   const [selectedSlug, setSelectedSlug] = useState(
     initialSlug && roomTypes.some((r) => r.slug === initialSlug)
       ? initialSlug
       : roomTypes[0]?.slug ?? ""
   );
-
+  const [checkIn, setCheckIn] = useState(today);
+  const [checkOut, setCheckOut] = useState(tomorrow);
   const selectedRoom = roomTypes.find((r) => r.slug === selectedSlug);
-
-  const today = new Date().toISOString().split("T")[0];
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
+  const minCheckOut = addDays(checkIn || today, 1);
+  const nights = countNights(checkIn, checkOut);
+  const estimatedTotal = selectedRoom ? selectedRoom.priceUgx * nights : 0;
 
   function fmtUgx(n: number) {
     return new Intl.NumberFormat("en-UG").format(n) + " UGX";
+  }
+
+  function handleCheckInChange(value: string) {
+    setCheckIn(value);
+
+    if (!value) return;
+    const nextMinimumCheckOut = addDays(value, 1);
+    if (!checkOut || checkOut <= value) {
+      setCheckOut(nextMinimumCheckOut);
+    }
   }
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -97,7 +128,8 @@ export default function BookForm({
             name="checkIn"
             type="date"
             min={today}
-            defaultValue={today}
+            value={checkIn}
+            onChange={(e) => handleCheckInChange(e.target.value)}
             required
             className="w-full rounded-2xl border border-stoneWarm-200 bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-oliveMuted-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
           />
@@ -110,8 +142,9 @@ export default function BookForm({
             id="checkOut"
             name="checkOut"
             type="date"
-            min={tomorrow}
-            defaultValue={tomorrow}
+            min={minCheckOut}
+            value={checkOut}
+            onChange={(e) => setCheckOut(e.target.value)}
             required
             className="w-full rounded-2xl border border-stoneWarm-200 bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-oliveMuted-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
           />
@@ -217,14 +250,27 @@ export default function BookForm({
         </div>
       </div>
 
-      {/* Rate note */}
+      {/* Stay total */}
       {selectedRoom && (
         <div className="rounded-2xl border border-stoneWarm-100 bg-stoneWarm-50 px-5 py-4 text-sm dark:border-zinc-700 dark:bg-zinc-800">
-          <p className="text-zinc-600 dark:text-zinc-300">
-            Rate: {fmtUgx(selectedRoom.priceUgx)} / night
-          </p>
-          <p className="mt-1 text-xs text-zinc-400">
-            Final total is calculated from your selected dates.
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">
+                Stay total
+              </p>
+              <p className="mt-1 text-zinc-600 dark:text-zinc-300">
+                {fmtUgx(selectedRoom.priceUgx)} / night
+                {nights > 0 ? ` x ${nights} ${nights === 1 ? "night" : "nights"}` : ""}
+              </p>
+            </div>
+            <p className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
+              {nights > 0 ? fmtUgx(estimatedTotal) : "--"}
+            </p>
+          </div>
+          <p className="mt-3 text-xs text-zinc-400">
+            {nights > 0
+              ? "This is the amount you should expect before Pesapal opens."
+              : "Select valid check-in and check-out dates to see your total."}
           </p>
         </div>
       )}
@@ -239,7 +285,7 @@ export default function BookForm({
 
       <button
         type="submit"
-        disabled={pending}
+        disabled={pending || !selectedRoom || nights <= 0}
         className="w-full rounded-full bg-oliveMuted-600 px-8 py-4 text-sm font-semibold uppercase tracking-[0.12em] text-white transition hover:bg-oliveMuted-700 disabled:opacity-60"
       >
         {pending ? "Processing…" : "Proceed to Payment"}
