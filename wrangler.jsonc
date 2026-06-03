@@ -46,6 +46,9 @@
 		// Canonical public origin (MCR-SEC-08). Pesapal callback/IPN URLs and
 		// metadata routes derive from this, never from the request Host header.
 		"SITE_URL": "https://mubendecountryresort.mubendecountryresort.workers.dev"
+		// NEXT_PUBLIC_TURNSTILE_SITE_KEY can be set here after creating the
+		// Cloudflare Turnstile widget. TURNSTILE_SECRET_KEY must be a secret:
+		//   wrangler secret put TURNSTILE_SECRET_KEY
 	},
 	"observability": {
 		"enabled": false,

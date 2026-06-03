@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { getSql } from "@/lib/db/client";
 import { consumeRateLimit, getClientIp } from "@/lib/rate-limit";
+import { verifyTurnstileFormData } from "@/lib/turnstile";
 
 export type ContactFormState = {
   status: "idle" | "success" | "error";
@@ -43,8 +44,18 @@ export async function submitContactFormAction(
     };
   }
 
+  const requestHeaders = await headers();
+  const clientIp = getClientIp(requestHeaders);
+
+  const verifiedHuman = await verifyTurnstileFormData(formData, clientIp);
+  if (!verifiedHuman) {
+    return {
+      status: "error",
+      message: "Please complete the verification and try again."
+    };
+  }
+
   // MCR-SEC-10: per-IP throttle before validation / DB write.
-  const clientIp = getClientIp(await headers());
   const allowed = await consumeRateLimit(
     `contact:ip:${clientIp}`,
     CONTACT_IP_MAX_ATTEMPTS,

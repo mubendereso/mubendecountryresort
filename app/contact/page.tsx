@@ -1,7 +1,12 @@
 import Reveal from '@/components/Reveal';
+import { getTurnstileSiteKey } from '@/lib/turnstile';
 import { ContactForm } from './contact-form';
 
+export const dynamic = 'force-dynamic';
+
 export default function ContactPage() {
+  const turnstileSiteKey = getTurnstileSiteKey();
+
   return (
     <section className="section-space">
       <div className="section-shell">
@@ -18,7 +23,7 @@ export default function ContactPage() {
           {/* Contact form block */}
           <Reveal className="rounded-3xl border border-stoneWarm-200 bg-white p-6 shadow-soft dark:border-zinc-800 dark:bg-zinc-900">
             <h2 className="font-heading text-2xl">Send a Message</h2>
-            <ContactForm />
+            <ContactForm turnstileSiteKey={turnstileSiteKey} />
           </Reveal>
 
           {/* Map + direct CTA block */}

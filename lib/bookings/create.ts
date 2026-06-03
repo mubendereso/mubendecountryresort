@@ -7,6 +7,7 @@ import { consumeRateLimit, getClientIp } from "@/lib/rate-limit";
 import { enqueuePendingPaymentRecoverySafely } from "@/lib/payments/recovery";
 import { enqueuePaymentRecoveryCheckSafely } from "@/lib/payments/recovery-queue";
 import { submitPesapalOrder, PesapalInitiationError } from "@/lib/pesapal/client";
+import { verifyTurnstileFormData } from "@/lib/turnstile";
 
 // MCR-SEC-09: cap public booking initiations per IP. Each call fans out to
 // Neon (booking + payment_attempt rows) and Pesapal (token + order + IPN
@@ -30,8 +31,18 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
     return { ok: false, error: "Your booking could not be processed. Please try again." };
   }
 
+  const requestHeaders = await headers();
+  const clientIp = getClientIp(requestHeaders);
+
+  const verifiedHuman = await verifyTurnstileFormData(formData, clientIp);
+  if (!verifiedHuman) {
+    return {
+      ok: false,
+      error: "Please complete the verification and try again."
+    };
+  }
+
   // MCR-SEC-09: per-IP throttle before any DB / Pesapal work.
-  const clientIp = getClientIp(await headers());
   const allowed = await consumeRateLimit(
     `booking:ip:${clientIp}`,
     BOOKING_IP_MAX_ATTEMPTS,

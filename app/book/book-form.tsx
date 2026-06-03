@@ -2,6 +2,7 @@
 
 import { useTransition, useState } from "react";
 import { initiateBookingAction } from "@/lib/bookings/create";
+import { resetTurnstileWidget, TurnstileWidget } from "@/components/TurnstileWidget";
 
 type BookRoom = {
   slug: string;
@@ -12,10 +13,12 @@ type BookRoom = {
 
 export default function BookForm({
   roomTypes,
-  initialSlug
+  initialSlug,
+  turnstileSiteKey
 }: {
   roomTypes: BookRoom[];
   initialSlug?: string;
+  turnstileSiteKey: string;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +46,7 @@ export default function BookForm({
       const result = await initiateBookingAction(formData);
       if (!result.ok) {
         setError(result.error);
+        resetTurnstileWidget();
         return;
       }
       window.location.href = result.redirectUrl;
@@ -230,6 +234,8 @@ export default function BookForm({
           {error}
         </div>
       )}
+
+      <TurnstileWidget siteKey={turnstileSiteKey} />
 
       <button
         type="submit"

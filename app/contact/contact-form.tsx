@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef } from "react";
+import { resetTurnstileWidget, TurnstileWidget } from "@/components/TurnstileWidget";
 import { submitContactFormAction, type ContactFormState } from "./actions";
 
 const initialState: ContactFormState = {
@@ -8,13 +9,16 @@ const initialState: ContactFormState = {
   message: ""
 };
 
-export function ContactForm() {
+export function ContactForm({ turnstileSiteKey }: { turnstileSiteKey: string }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [state, formAction, isPending] = useActionState(submitContactFormAction, initialState);
 
   useEffect(() => {
     if (state.status === "success") {
       formRef.current?.reset();
+      resetTurnstileWidget();
+    } else if (state.status === "error") {
+      resetTurnstileWidget();
     }
   }, [state.status]);
 
@@ -37,6 +41,7 @@ export function ContactForm() {
           id="fullName"
           name="fullName"
           type="text"
+          maxLength={120}
           required
           placeholder="Your full name"
           className="w-full rounded-2xl border border-stoneWarm-300 bg-stoneWarm-100/50 px-4 py-3 text-sm outline-none focus:border-oliveMuted-500 dark:border-zinc-700 dark:bg-zinc-800"
@@ -51,6 +56,7 @@ export function ContactForm() {
           id="email"
           name="email"
           type="email"
+          maxLength={200}
           required
           placeholder="you@example.com"
           className="w-full rounded-2xl border border-stoneWarm-300 bg-stoneWarm-100/50 px-4 py-3 text-sm outline-none focus:border-oliveMuted-500 dark:border-zinc-700 dark:bg-zinc-800"
@@ -65,6 +71,7 @@ export function ContactForm() {
           id="phone"
           name="phone"
           type="tel"
+          maxLength={40}
           placeholder="+256..."
           className="w-full rounded-2xl border border-stoneWarm-300 bg-stoneWarm-100/50 px-4 py-3 text-sm outline-none focus:border-oliveMuted-500 dark:border-zinc-700 dark:bg-zinc-800"
         />
@@ -78,6 +85,7 @@ export function ContactForm() {
           id="subject"
           name="subject"
           type="text"
+          maxLength={200}
           placeholder="Reservation, event, or general enquiry"
           className="w-full rounded-2xl border border-stoneWarm-300 bg-stoneWarm-100/50 px-4 py-3 text-sm outline-none focus:border-oliveMuted-500 dark:border-zinc-700 dark:bg-zinc-800"
         />
@@ -92,6 +100,7 @@ export function ContactForm() {
           name="message"
           required
           rows={5}
+          maxLength={4000}
           placeholder="Tell us about your stay or event plans"
           className="w-full rounded-2xl border border-stoneWarm-300 bg-stoneWarm-100/50 px-4 py-3 text-sm outline-none focus:border-oliveMuted-500 dark:border-zinc-700 dark:bg-zinc-800"
         />
@@ -108,6 +117,8 @@ export function ContactForm() {
           {state.message}
         </p>
       )}
+
+      <TurnstileWidget siteKey={turnstileSiteKey} />
 
       <button
         type="submit"

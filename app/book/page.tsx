@@ -1,4 +1,5 @@
 import { getRooms } from "@/lib/rooms/data";
+import { getTurnstileSiteKey } from "@/lib/turnstile";
 import BookForm from "./book-form";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,7 @@ export default async function BookPage({
   const initialSlug = Array.isArray(room) ? room[0] : room;
 
   const roomTypes = await getRooms();
+  const turnstileSiteKey = getTurnstileSiteKey();
 
   return (
     <section className="section-space">
@@ -28,7 +30,11 @@ export default async function BookPage({
             No rooms are currently available for booking. Please contact us directly.
           </p>
         ) : (
-          <BookForm roomTypes={roomTypes} initialSlug={initialSlug} />
+          <BookForm
+            roomTypes={roomTypes}
+            initialSlug={initialSlug}
+            turnstileSiteKey={turnstileSiteKey}
+          />
         )}
       </div>
     </section>
