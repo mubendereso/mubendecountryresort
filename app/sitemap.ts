@@ -10,10 +10,10 @@ import { getSiteOrigin } from '@/lib/env';
 export const dynamic = 'force-dynamic';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const siteUrl = getSiteOrigin();
+  const siteOrigin = getSiteOrigin();
   const now = new Date();
 
-  const routes = ['', '/rooms', '/gallery', '/amenities', '/contact'];
+  const routes = ['', '/rooms', '/gallery', '/amenities', '/contact', '/book'];
   const amenityRoutes = amenities.map((item) => `/amenities/${item.slug}`);
   const experienceRoutes = experiences.map((item) => `/experiences/${item.slug}`);
   const roomRoutes = (await getRoomSlugs()).map((slug) => `/rooms/${slug}`);
@@ -21,9 +21,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const allRoutes = [...routes, ...amenityRoutes, ...experienceRoutes, ...serviceRoutes, ...roomRoutes];
 
   return allRoutes.map((route) => ({
-    url: `${siteUrl}${route}`,
+    url: `${siteOrigin}${route}`,
     lastModified: now,
     changeFrequency: route === '' ? 'weekly' : 'monthly',
-    priority: route === '' ? 1 : 0.8
+    priority: route === '' ? 1 : route === '/rooms' || route === '/book' ? 0.9 : 0.7
   }));
 }

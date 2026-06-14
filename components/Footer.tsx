@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import Link from 'next/link';
 
 export default function Footer() {
@@ -6,7 +7,18 @@ export default function Footer() {
       {/* Footer content grid */}
       <div className="section-shell grid gap-10 py-12 sm:grid-cols-2 lg:grid-cols-4">
         <div>
-          <h3 className="font-heading text-xl text-oliveMuted-600 dark:text-stoneWarm-100">Mubende Country Resort</h3>
+          <div className="flex items-center gap-3">
+            <span className="relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl border border-stoneWarm-200 bg-white shadow-sm">
+              <Image
+                src="/icons/mcr-official-logo.png"
+                alt=""
+                fill
+                sizes="56px"
+                className="scale-[1.65] object-contain"
+              />
+            </span>
+            <h3 className="font-heading text-xl text-oliveMuted-600 dark:text-stoneWarm-100">Mubende Country Resort</h3>
+          </div>
           <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300">
             A peaceful countryside retreat with elegant rooms, curated dining, and unforgettable experiences.
           </p>

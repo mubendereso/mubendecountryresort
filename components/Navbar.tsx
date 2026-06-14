@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
 
@@ -17,8 +18,18 @@ export default function Navbar() {
   return (
     <header className="sticky top-0 z-50 border-b border-stoneWarm-200/70 bg-canvas-light/95 backdrop-blur dark:border-zinc-800 dark:bg-canvas-dark/95">
       <nav className="section-shell flex h-20 items-center justify-between">
-        <Link href="/" className="font-heading text-2xl tracking-wide text-oliveMuted-600 dark:text-stoneWarm-100">
-          Mubende Country Resort
+        <Link href="/" className="flex items-center gap-3 text-oliveMuted-600 dark:text-stoneWarm-100">
+          <span className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl border border-stoneWarm-200 bg-white shadow-sm">
+            <Image
+              src="/icons/mcr-official-logo.png"
+              alt=""
+              fill
+              sizes="48px"
+              className="scale-[1.65] object-contain"
+              priority
+            />
+          </span>
+          <span className="font-heading text-xl tracking-wide sm:text-2xl">Mubende Country Resort</span>
         </Link>
 
         {/* Desktop navigation */}
