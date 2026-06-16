@@ -22,6 +22,7 @@ type TurnstileWindow = Window & {
 };
 
 const TURNSTILE_RESET_EVENT = "mcr:turnstile-reset";
+const TURNSTILE_SCRIPT_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
 export function resetTurnstileWidget(): void {
   window.dispatchEvent(new Event(TURNSTILE_RESET_EVENT));
@@ -41,19 +42,38 @@ function TurnstileWidgetComponent({
   const [token, setToken] = useState("");
 
   useEffect(() => {
-    if (!scriptReady || !siteKey || !containerRef.current || widgetIdRef.current) return;
+    if (!siteKey || !containerRef.current || widgetIdRef.current) return;
 
-    const turnstile = (window as TurnstileWindow).turnstile;
-    if (!turnstile) return;
+    let retryId: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
 
-    widgetIdRef.current = turnstile.render(containerRef.current, {
-      sitekey: siteKey,
-      theme: "auto",
-      size: "flexible",
-      callback: setToken,
-      "expired-callback": () => setToken(""),
-      "error-callback": () => setToken("")
-    });
+    function renderWidget() {
+      if (cancelled || !containerRef.current || widgetIdRef.current) return;
+      const turnstile = (window as TurnstileWindow).turnstile;
+
+      if (!turnstile) {
+        retryId = setTimeout(renderWidget, 150);
+        return;
+      }
+
+      widgetIdRef.current = turnstile.render(containerRef.current, {
+        sitekey: siteKey,
+        theme: "auto",
+        size: "normal",
+        callback: setToken,
+        "expired-callback": () => setToken(""),
+        "error-callback": () => setToken("")
+      });
+    }
+
+    if (scriptReady || (window as TurnstileWindow).turnstile) {
+      renderWidget();
+    }
+
+    return () => {
+      cancelled = true;
+      if (retryId) clearTimeout(retryId);
+    };
   }, [scriptReady, siteKey]);
 
   useEffect(() => {
@@ -84,14 +104,15 @@ function TurnstileWidgetComponent({
   return (
     <div className={className}>
       <Script
-        src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+        src={TURNSTILE_SCRIPT_SRC}
         strategy="afterInteractive"
         async
         defer
+        onLoad={() => setScriptReady(true)}
         onReady={() => setScriptReady(true)}
       />
       <input type="hidden" name="cf-turnstile-response" value={token} />
-      <div ref={containerRef} />
+      <div ref={containerRef} className="min-h-[65px] w-full max-w-[320px]" />
     </div>
   );
 }

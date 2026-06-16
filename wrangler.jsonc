@@ -45,10 +45,10 @@
 		"PESAPAL_BASE_URL": "https://cybqa.pesapal.com/pesapalv3",
 		// Canonical public origin (MCR-SEC-08). Pesapal callback/IPN URLs and
 		// metadata routes derive from this, never from the request Host header.
-		"SITE_URL": "https://mubendecountryresort.mubendecountryresort.workers.dev"
-		// NEXT_PUBLIC_TURNSTILE_SITE_KEY can be set here after creating the
-		// Cloudflare Turnstile widget. TURNSTILE_SECRET_KEY must be a secret:
-		//   wrangler secret put TURNSTILE_SECRET_KEY
+		"SITE_URL": "https://mubendecountryresort.mubendecountryresort.workers.dev",
+		// Public Turnstile test key. TURNSTILE_SECRET_KEY must still be provided
+		// as a secret; use Cloudflare's matching test secret for this key.
+		"NEXT_PUBLIC_TURNSTILE_SITE_KEY": "1x00000000000000000000AA"
 	},
 	"observability": {
 		"enabled": false,
