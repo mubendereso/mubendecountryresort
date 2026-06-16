@@ -289,7 +289,17 @@ export default function BookForm({
         </div>
       )}
 
-      <TurnstileWidget siteKey={turnstileSiteKey} />
+      <div className="rounded-2xl border border-stoneWarm-100 bg-stoneWarm-50 px-5 py-4 dark:border-zinc-700 dark:bg-zinc-800">
+        <div className="mb-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-400">
+            Verification
+          </p>
+          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+            Complete the check below before proceeding to payment.
+          </p>
+        </div>
+        <TurnstileWidget siteKey={turnstileSiteKey} />
+      </div>
 
       <button
         type="submit"
