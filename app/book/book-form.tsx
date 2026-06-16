@@ -19,6 +19,14 @@ function addDays(isoDate: string, days: number) {
   return date.toISOString().split("T")[0];
 }
 
+function todayISO() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function countNights(checkIn: string, checkOut: string) {
   if (!checkIn || !checkOut || checkOut <= checkIn) return 0;
 
@@ -40,7 +48,7 @@ export default function BookForm({
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayISO();
   const tomorrow = addDays(today, 1);
   const [selectedSlug, setSelectedSlug] = useState(
     initialSlug && roomTypes.some((r) => r.slug === initialSlug)
