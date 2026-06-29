@@ -3,6 +3,7 @@ import "server-only";
 import { getSql } from "@/lib/db/client";
 import { getPesapalTransactionStatus } from "@/lib/pesapal/client";
 import { verifyPesapalPaymentForBooking } from "@/lib/payments/binding";
+import type { PaymentRecoveryWakeupState } from "@/lib/payments/recovery-policy";
 
 // Durable pending-payment recovery (ported in shape from
 // thesmokehouse/lib/payments/order-payments.ts). The DB plumbing already exists
@@ -79,9 +80,9 @@ async function completeRecovery(id: string): Promise<void> {
   `;
 }
 
-async function rescheduleRecovery(row: RecoveryRow, reason: string): Promise<void> {
+async function rescheduleRecovery(row: RecoveryRow, reason: string): Promise<string> {
   const sql = getSql();
-  await sql`
+  const [updated] = (await sql`
     update public.pending_payment_recoveries
     set
       status = 'retrying',
@@ -90,7 +91,64 @@ async function rescheduleRecovery(row: RecoveryRow, reason: string): Promise<voi
       last_error = ${reason},
       locked_at = null
     where id = ${row.id}::uuid
-  `;
+    returning next_attempt_at::text
+  `) as { next_attempt_at: string }[];
+  if (!updated) {
+    throw new Error("Recovery row disappeared while it was being rescheduled.");
+  }
+  return updated.next_attempt_at;
+}
+
+export async function getPaymentRecoveryWakeupState(input: {
+  bookingId: string;
+  orderTrackingId: string;
+}): Promise<PaymentRecoveryWakeupState | null> {
+  const sql = getSql();
+  const [row] = (await sql`
+    select
+      r.status,
+      case
+        when r.status = 'processing' and r.locked_at is not null
+          then greatest(r.next_attempt_at, r.locked_at + interval '5 minutes')::text
+        else r.next_attempt_at::text
+      end as wake_at,
+      r.attempt_count,
+      r.max_attempts,
+      r.booking_id::text,
+      b.reference,
+      r.order_tracking_id,
+      pa.id::text as payment_attempt_id
+    from public.pending_payment_recoveries r
+    join public.bookings b on b.id = r.booking_id
+    left join public.payment_attempts pa on pa.id = b.active_payment_attempt_id
+    where r.booking_id = ${input.bookingId}::uuid
+      and r.order_tracking_id = ${input.orderTrackingId}
+      and b.order_tracking_id = r.order_tracking_id
+      and r.provider = 'pesapal'
+    order by r.created_at desc
+    limit 1
+  `) as {
+    status: PaymentRecoveryWakeupState["status"];
+    wake_at: string;
+    attempt_count: number;
+    max_attempts: number;
+    booking_id: string;
+    reference: string;
+    order_tracking_id: string;
+    payment_attempt_id: string | null;
+  }[];
+
+  if (!row) return null;
+  return {
+    status: row.status,
+    wakeAt: row.wake_at,
+    attemptCount: Number(row.attempt_count),
+    maxAttempts: Number(row.max_attempts),
+    bookingId: row.booking_id,
+    reference: row.reference,
+    orderTrackingId: row.order_tracking_id,
+    paymentAttemptId: row.payment_attempt_id
+  };
 }
 
 // Soft-cancel a still-pending booking on timeout. Sets payment_expired_at so a
@@ -250,11 +308,15 @@ export async function reconcileDuePendingPayments(
         const message = error instanceof Error ? error.message : "recovery_failed";
         stats.errors.push(message);
         // Release the claim so it retries later rather than staying locked.
-        await rescheduleRecovery(row, message).catch((rescheduleError) => {
-          stats.errors.push(
-            rescheduleError instanceof Error ? rescheduleError.message : "reschedule_failed"
-          );
-        });
+        await rescheduleRecovery(row, message)
+          .then(() => {
+            stats.rescheduled += 1;
+          })
+          .catch((rescheduleError) => {
+            stats.errors.push(
+              rescheduleError instanceof Error ? rescheduleError.message : "reschedule_failed"
+            );
+          });
       }
     }
   } catch (error) {

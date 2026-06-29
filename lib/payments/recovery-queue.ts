@@ -26,6 +26,19 @@ type CloudflareEnvWithRecoveryQueue = CloudflareEnv & {
   PAYMENT_RECOVERY_QUEUE?: PaymentRecoveryQueueBinding;
 };
 
+type EnqueuePaymentRecoveryInput = {
+  bookingId: string;
+  reference: string;
+  orderTrackingId: string;
+  paymentAttemptId: string;
+};
+
+type EnqueuePaymentRecoveryOptions = {
+  delaySeconds?: number;
+  attempt?: number;
+  reason?: string;
+};
+
 function getPaymentRecoveryQueue(): PaymentRecoveryQueueBinding | null {
   try {
     const { env } = getCloudflareContext();
@@ -45,42 +58,41 @@ export function isPaymentRecoveryQueueMessage(value: unknown): value is PaymentR
     typeof candidate.orderTrackingId === "string" &&
     typeof candidate.paymentAttemptId === "string" &&
     typeof candidate.queuedAt === "string" &&
-    typeof candidate.attempt === "number"
+    typeof candidate.attempt === "number" &&
+    Number.isInteger(candidate.attempt) &&
+    candidate.attempt >= 0
+  );
+}
+
+export async function enqueuePaymentRecoveryCheck(
+  input: EnqueuePaymentRecoveryInput,
+  options?: EnqueuePaymentRecoveryOptions
+): Promise<void> {
+  const queue = getPaymentRecoveryQueue();
+  if (!queue) {
+    throw new Error("PAYMENT_RECOVERY_QUEUE binding is unavailable.");
+  }
+
+  await queue.send(
+    {
+      kind: "payment_recovery_check",
+      bookingId: input.bookingId,
+      reference: input.reference,
+      orderTrackingId: input.orderTrackingId,
+      paymentAttemptId: input.paymentAttemptId,
+      queuedAt: new Date().toISOString(),
+      attempt: options?.attempt ?? 0
+    },
+    { delaySeconds: options?.delaySeconds ?? PAYMENT_RECOVERY_INITIAL_DELAY_SECONDS }
   );
 }
 
 export async function enqueuePaymentRecoveryCheckSafely(
-  input: {
-    bookingId: string;
-    reference: string;
-    orderTrackingId: string;
-    paymentAttemptId: string;
-  },
-  options?: { delaySeconds?: number; attempt?: number; reason?: string }
+  input: EnqueuePaymentRecoveryInput,
+  options?: EnqueuePaymentRecoveryOptions
 ): Promise<void> {
-  const queue = getPaymentRecoveryQueue();
-  if (!queue) {
-    console.warn("payment_recovery_queue_missing", {
-      bookingId: input.bookingId,
-      reference: input.reference,
-      reason: options?.reason ?? null
-    });
-    return;
-  }
-
   try {
-    await queue.send(
-      {
-        kind: "payment_recovery_check",
-        bookingId: input.bookingId,
-        reference: input.reference,
-        orderTrackingId: input.orderTrackingId,
-        paymentAttemptId: input.paymentAttemptId,
-        queuedAt: new Date().toISOString(),
-        attempt: options?.attempt ?? 0
-      },
-      { delaySeconds: options?.delaySeconds ?? PAYMENT_RECOVERY_INITIAL_DELAY_SECONDS }
-    );
+    await enqueuePaymentRecoveryCheck(input, options);
   } catch (error) {
     console.error("payment_recovery_queue_send_failed", {
       bookingId: input.bookingId,

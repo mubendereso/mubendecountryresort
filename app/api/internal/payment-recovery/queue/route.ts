@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { reconcileDuePendingPayments } from "@/lib/payments/recovery";
 import {
-  enqueuePaymentRecoveryCheckSafely,
-  isPaymentRecoveryQueueMessage,
-  PAYMENT_RECOVERY_RETRY_DELAY_SECONDS
+  getPaymentRecoveryWakeupState,
+  reconcileDuePendingPayments
+} from "@/lib/payments/recovery";
+import {
+  enqueuePaymentRecoveryCheck,
+  isPaymentRecoveryQueueMessage
 } from "@/lib/payments/recovery-queue";
+import { handlePaymentRecoveryQueueMessage } from "@/lib/payments/recovery-queue-handler";
 
 const QUEUE_SECRET_HEADER = "x-payment-recovery-queue-secret";
-const MAX_REENQUEUED_ATTEMPTS = 500;
 
 function getQueueSecret(): string {
   return process.env.PAYMENT_RECOVERY_QUEUE_SECRET?.trim() ?? "";
@@ -30,26 +32,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false, error: "invalid_message" }, { status: 400 });
   }
 
-  const stats = await reconcileDuePendingPayments("queue", {
-    limit: 1,
-    bookingId: body.bookingId
+  const result = await handlePaymentRecoveryQueueMessage(body, {
+    getWakeupState: getPaymentRecoveryWakeupState,
+    reconcile: reconcileDuePendingPayments,
+    enqueue: enqueuePaymentRecoveryCheck
   });
-
-  if (stats.rescheduled > 0 && body.attempt < MAX_REENQUEUED_ATTEMPTS) {
-    await enqueuePaymentRecoveryCheckSafely(
-      {
-        bookingId: body.bookingId,
-        reference: body.reference,
-        orderTrackingId: body.orderTrackingId,
-        paymentAttemptId: body.paymentAttemptId
-      },
-      {
-        attempt: body.attempt + 1,
-        delaySeconds: PAYMENT_RECOVERY_RETRY_DELAY_SECONDS,
-        reason: "Payment still pending after queue recovery check."
-      }
-    );
-  }
-
-  return NextResponse.json({ ok: true, stats });
+  return NextResponse.json(result.body, { status: result.status });
 }
