@@ -4,7 +4,6 @@ import { headers } from "next/headers";
 import { getSql } from "@/lib/db/client";
 import { getSiteOrigin } from "@/lib/env";
 import { consumeRateLimit, getClientIp } from "@/lib/rate-limit";
-import { enqueuePendingPaymentRecoverySafely } from "@/lib/payments/recovery";
 import { enqueuePaymentRecoveryCheckSafely } from "@/lib/payments/recovery-queue";
 import { submitPesapalOrder, PesapalInitiationError } from "@/lib/pesapal/client";
 import { verifyTurnstileFormData } from "@/lib/turnstile";
@@ -93,11 +92,12 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
   let bookingId: string;
   let reference: string;
   let quotedTotalUgx: number;
+  let paymentCapability: string;
 
   try {
     const rows = (await sql`
-      SELECT booking_id, reference, quoted_total_ugx
-      FROM create_online_booking(
+      SELECT booking_id, reference, quoted_total_ugx, payment_capability
+      FROM create_online_booking_with_payment_capability(
         ${roomTypeSlug}::text,
         ${checkIn}::date,
         ${checkOut}::date,
@@ -108,12 +108,18 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
         ${guestPhone}::text,
         ${specialRequests}::text
       )
-    `) as { booking_id: string; reference: string; quoted_total_ugx: string }[];
+    `) as {
+      booking_id: string;
+      reference: string;
+      quoted_total_ugx: string;
+      payment_capability: string;
+    }[];
 
     if (!rows[0]) return { ok: false, error: "Booking could not be created. Please try again." };
     bookingId = rows[0].booking_id;
     reference = rows[0].reference;
     quotedTotalUgx = Number(rows[0].quoted_total_ugx);
+    paymentCapability = rows[0].payment_capability;
   } catch (err) {
     const msg = err instanceof Error ? err.message.toLowerCase() : "";
     if (msg.includes("availability") || msg.includes("available")) {
@@ -132,44 +138,36 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
   let attemptId: string | null = null;
   try {
     const [attempt] = (await sql`
-      INSERT INTO payment_attempts (booking_id, merchant_reference, amount_ugx, provider_request_started_at)
-      VALUES (${bookingId}::uuid, ${reference}, ${quotedTotalUgx}, now())
-      RETURNING id
-    `) as { id: string }[];
-    if (!attempt?.id) {
-      throw new Error("payment_attempt insert returned no id");
+      SELECT
+        payment_attempt_id::text AS id,
+        reference,
+        amount_ugx::text
+      FROM public.start_storefront_payment_attempt(
+        ${bookingId}::uuid,
+        ${paymentCapability}::uuid
+      )
+    `) as { id: string; reference: string; amount_ugx: string }[];
+    if (
+      !attempt?.id ||
+      attempt.reference !== reference ||
+      BigInt(attempt.amount_ugx) !== BigInt(quotedTotalUgx)
+    ) {
+      throw new Error("Guarded payment attempt returned an invalid binding");
     }
     attemptId = attempt.id;
-
-    await sql`
-      UPDATE bookings SET
-        payment_provider = 'pesapal',
-        active_payment_attempt_id = ${attemptId}::uuid,
-        payment_initiation_attempted_at = now()
-      WHERE id = ${bookingId}::uuid
-    `;
   } catch (err) {
     const failureMessage = err instanceof Error ? err.message : "Unknown error";
 
     try {
       await sql`
-        UPDATE bookings SET
-          status = 'cancelled',
-          payment_initiation_failure_code = 'pre_provider',
-          payment_initiation_failure_message = ${failureMessage},
-          payment_initiation_failed_at = now()
-        WHERE id = ${bookingId}::uuid AND status = 'pending_payment'
+        SELECT public.record_storefront_payment_initiation_failure(
+          ${bookingId}::uuid,
+          ${attemptId}::uuid,
+          ${paymentCapability}::uuid,
+          'pre_provider',
+          ${failureMessage}
+        )
       `;
-
-      if (attemptId) {
-        await sql`
-          UPDATE payment_attempts SET
-            status = 'failed',
-            failure_message = ${failureMessage},
-            failure_phase = 'pre_provider'
-          WHERE id = ${attemptId}::uuid
-        `;
-      }
     } catch (logErr) {
       console.error("Failed to cancel pre-provider payment binding failure:", logErr);
     }
@@ -212,20 +210,13 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
     // pending_payment with no tracking id. Runs regardless of attemptId.
     try {
       await sql`
-        UPDATE bookings SET
-          status = 'cancelled',
-          payment_initiation_failure_code = 'provider_rejected',
-          payment_initiation_failure_message = ${failureMessage},
-          payment_initiation_failed_at = now()
-        WHERE id = ${bookingId}::uuid AND status = 'pending_payment'
-      `;
-
-      await sql`
-        UPDATE payment_attempts SET
-          status = 'rejected',
-          failure_message = ${failureMessage},
-          failure_phase = 'provider_rejected'
-        WHERE id = ${attemptId}::uuid
+        SELECT public.record_storefront_payment_initiation_failure(
+          ${bookingId}::uuid,
+          ${attemptId}::uuid,
+          ${paymentCapability}::uuid,
+          'provider_rejected',
+          ${failureMessage}
+        )
       `;
     } catch (logErr) {
       console.error("Failed to cancel rejected booking initiation:", logErr);
@@ -240,39 +231,26 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
   // active payment attempt to match the Pesapal transaction exactly.
   try {
     await sql`
-      UPDATE bookings SET
-        order_tracking_id = ${orderTrackingId},
-        active_payment_attempt_id = ${attemptId}::uuid,
-        payment_redirect_url = ${redirectUrl}
-      WHERE id = ${bookingId}::uuid
-    `;
-
-    await sql`
-      UPDATE payment_attempts SET
-        status = 'initiated',
-        provider_reference = ${orderTrackingId},
-        redirect_url = ${redirectUrl},
-        response_received_at = now()
-      WHERE id = ${attemptId}::uuid
+      SELECT public.record_storefront_payment_initiation_success(
+        ${bookingId}::uuid,
+        ${attemptId}::uuid,
+        ${paymentCapability}::uuid,
+        ${orderTrackingId},
+        ${redirectUrl}
+      )
     `;
   } catch (err) {
     const failureMessage = err instanceof Error ? err.message : "Unknown error";
 
     try {
       await sql`
-        UPDATE bookings SET
-          payment_initiation_failure_code = 'post_provider_unknown',
-          payment_initiation_failure_message = ${failureMessage},
-          payment_initiation_failed_at = now()
-        WHERE id = ${bookingId}::uuid
-      `;
-
-      await sql`
-        UPDATE payment_attempts SET
-          status = 'failed',
-          failure_message = ${failureMessage},
-          failure_phase = 'post_provider_unknown'
-        WHERE id = ${attemptId}::uuid
+        SELECT public.record_storefront_payment_initiation_failure(
+          ${bookingId}::uuid,
+          ${attemptId}::uuid,
+          ${paymentCapability}::uuid,
+          'post_provider_unknown',
+          ${failureMessage}
+        )
       `;
     } catch (logErr) {
       console.error("Failed to record post-initiation bookkeeping failure:", logErr);
@@ -287,11 +265,6 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
 
   // Durably track this payment so a dropped/late Pesapal IPN is still
   // reconciled by the recovery loop. Best-effort; never blocks the redirect.
-  await enqueuePendingPaymentRecoverySafely({
-    bookingId,
-    orderTrackingId,
-    reason: "Booking payment initiated."
-  });
   await enqueuePaymentRecoveryCheckSafely(
     {
       bookingId,

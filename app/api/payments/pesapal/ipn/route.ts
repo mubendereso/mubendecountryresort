@@ -1,11 +1,7 @@
-import { after, type NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getSql } from "@/lib/db/client";
-import {
-  PaymentBindingError,
-  verifyPesapalPaymentForBooking
-} from "@/lib/payments/binding";
+import { enqueuePaymentRecoveryCheck } from "@/lib/payments/recovery-queue";
 import { consumeRateLimit } from "@/lib/rate-limit";
-import { scheduleDuePendingPaymentRecovery } from "@/lib/payments/recovery";
 
 // MCR-SEC-11: cap how often a single payment's IPN is processed. Genuine
 // Pesapal notifications for one tracking id are few; this stops repeated hits
@@ -128,63 +124,48 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(ack);
   }
 
-  let verifiedPayment: Awaited<ReturnType<typeof verifyPesapalPaymentForBooking>>;
+  let binding: {
+    booking_id: string;
+    reference: string;
+    order_tracking_id: string;
+    payment_attempt_id: string;
+  } | undefined;
   try {
-    verifiedPayment = await verifyPesapalPaymentForBooking({
-      orderTrackingId,
-      merchantReference
-    });
+    [binding] = (await sql`
+      SELECT
+        booking_id::text,
+        reference,
+        order_tracking_id,
+        payment_attempt_id::text
+      FROM public.get_storefront_payment_queue_binding(
+        ${orderTrackingId},
+        ${merchantReference}
+      )
+    `) as typeof binding[];
   } catch (err) {
-    if (err instanceof PaymentBindingError) {
-      console.error("IPN: payment binding rejected:", err.code, merchantReference, orderTrackingId);
-    } else {
-      console.error("IPN: payment verification failed:", err);
-    }
+    console.error("IPN: payment binding lookup failed:", err);
     ack.status = 500;
     return NextResponse.json(ack);
   }
 
-  const { bookingId, currentStatus, transaction } = verifiedPayment;
-  const paymentStatus = transaction.paymentStatus;
-  const confirmationCode = transaction.confirmationCode;
+  if (!binding) {
+    console.error("IPN: payment binding rejected:", merchantReference, orderTrackingId);
+    ack.status = 500;
+    return NextResponse.json(ack);
+  }
 
   try {
-    // Confirm on paid from pending_payment OR a soft-cancelled booking (a late
-    // IPN reviving a forgotten-tab payment). confirm_booking_payment is
-    // idempotent and only revives timeout soft-cancels (payment_expired_at set),
-    // so an explicitly/terminally cancelled booking is rejected harmlessly.
-    if (paymentStatus === "paid" && (currentStatus === "pending_payment" || currentStatus === "cancelled")) {
-      // Atomically check availability and confirm. On race condition the
-      // booking is placed into awaiting_confirmation for manual review.
-      const [result] = (await sql`
-        SELECT success, requires_review, error_code
-        FROM confirm_booking_payment(
-          ${bookingId}::uuid,
-          ${orderTrackingId},
-          ${confirmationCode},
-          ${verifiedPayment.amountUgx}::bigint
-        )
-      `) as { success: boolean; requires_review: boolean; error_code: string | null }[];
-
-      if (result?.requires_review) {
-        console.warn(
-          "IPN: availability conflict for booking",
-          merchantReference,
-          "— placed in awaiting_confirmation for manual review"
-        );
-      } else if (!result?.success) {
-        console.error("IPN: confirm_booking_payment failed:", result?.error_code, "for", merchantReference);
-      }
-
-      // Update the payment attempt record
-      await sql`
-        UPDATE payment_attempts SET
-          verified_payment_status = 'paid',
-          verified_at = now(),
-          last_verification_response = ${JSON.stringify(transaction.rawResponse)}::jsonb
-        WHERE id = ${verifiedPayment.attemptId}::uuid
-      `;
-    }
+    // The public storefront can request verification, but only the isolated
+    // reconciler independently queries Pesapal and may apply a paid outcome.
+    await enqueuePaymentRecoveryCheck(
+      {
+        bookingId: binding.booking_id,
+        reference: binding.reference,
+        orderTrackingId: binding.order_tracking_id,
+        paymentAttemptId: binding.payment_attempt_id
+      },
+      { delaySeconds: 0, reason: "Pesapal IPN received." }
+    );
 
     if (ipnEventId) {
       await sql`UPDATE pesapal_ipn_events SET processed_at = now() WHERE id = ${ipnEventId}::uuid`;
@@ -194,10 +175,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     ack.status = 500;
     return NextResponse.json(ack);
   }
-
-  // An IPN means payment activity is happening — drain the recovery queue so any
-  // other stuck bookings get reconciled too. Runs after the ack is returned.
-  after(() => scheduleDuePendingPaymentRecovery("ipn"));
 
   return NextResponse.json(ack);
 }

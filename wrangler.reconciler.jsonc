@@ -1,0 +1,34 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mcr-payment-reconciler",
+  "main": "workers/payment-reconciler.ts",
+  "compatibility_date": "2026-06-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "queues": {
+    "producers": [
+      {
+        "binding": "PAYMENT_RECOVERY_QUEUE",
+        "queue": "mcr-payment-recovery"
+      }
+    ]
+  },
+  "vars": {
+    "PESAPAL_BASE_URL": "https://cybqa.pesapal.com/pesapalv3"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": true,
+      "persist": true,
+      "head_sampling_rate": 1
+    }
+  }
+}

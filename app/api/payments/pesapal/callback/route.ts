@@ -1,5 +1,4 @@
-import { after, type NextRequest, NextResponse } from "next/server";
-import { scheduleDuePendingPaymentRecovery } from "@/lib/payments/recovery";
+import { type NextRequest, NextResponse } from "next/server";
 
 // Pesapal redirects the guest here after payment (success or cancellation).
 // We relay them to the confirmation page which reads live booking state.
@@ -12,12 +11,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL("/book", origin));
   }
 
-  // A guest just returned from Pesapal — a payment likely just resolved. Drain
-  // the recovery queue so this (and any other stuck) booking is verified even
-  // if the IPN hasn't landed yet. Runs after the redirect is sent.
-  if (!cancelled) {
-    after(() => scheduleDuePendingPaymentRecovery("callback"));
-  }
+  // Confirmation is driven by the provider IPN and the durable recovery
+  // Queue. The public storefront never performs privileged reconciliation.
 
   const dest = new URL("/book/confirmation", origin);
   dest.searchParams.set("ref", reference);

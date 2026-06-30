@@ -17,6 +17,10 @@
 			// see https://opennext.js.org/cloudflare/caching
 			"binding": "WORKER_SELF_REFERENCE",
 			"service": "mubendecountryresort"
+		},
+		{
+			"binding": "PAYMENT_RECONCILER",
+			"service": "mcr-payment-reconciler"
 		}
 	],
 	"images": {

@@ -23,6 +23,10 @@
         "name": "next"
       }
     ],
+    "types": [
+      "node",
+      "@cloudflare/workers-types"
+    ],
     "paths": {
       "@/*": [
         "./*"

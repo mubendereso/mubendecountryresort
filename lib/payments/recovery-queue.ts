@@ -1,19 +1,12 @@
 import "server-only";
 
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import type { PaymentRecoveryQueueMessage } from "@/lib/payments/recovery-message";
+
+export { isPaymentRecoveryQueueMessage } from "@/lib/payments/recovery-message";
 
 export const PAYMENT_RECOVERY_INITIAL_DELAY_SECONDS = 7 * 60;
 export const PAYMENT_RECOVERY_RETRY_DELAY_SECONDS = 5 * 60;
-
-export type PaymentRecoveryQueueMessage = {
-  kind: "payment_recovery_check";
-  bookingId: string;
-  reference: string;
-  orderTrackingId: string;
-  paymentAttemptId: string;
-  queuedAt: string;
-  attempt: number;
-};
 
 type PaymentRecoveryQueueBinding = {
   send(
@@ -46,22 +39,6 @@ function getPaymentRecoveryQueue(): PaymentRecoveryQueueBinding | null {
   } catch {
     return null;
   }
-}
-
-export function isPaymentRecoveryQueueMessage(value: unknown): value is PaymentRecoveryQueueMessage {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<PaymentRecoveryQueueMessage>;
-  return (
-    candidate.kind === "payment_recovery_check" &&
-    typeof candidate.bookingId === "string" &&
-    typeof candidate.reference === "string" &&
-    typeof candidate.orderTrackingId === "string" &&
-    typeof candidate.paymentAttemptId === "string" &&
-    typeof candidate.queuedAt === "string" &&
-    typeof candidate.attempt === "number" &&
-    Number.isInteger(candidate.attempt) &&
-    candidate.attempt >= 0
-  );
 }
 
 export async function enqueuePaymentRecoveryCheck(

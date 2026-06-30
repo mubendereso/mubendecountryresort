@@ -10,37 +10,15 @@ export {
   DOShardedTagCache
 } from "./.open-next/worker.js";
 
-const RECOVERY_ROUTE = "/api/internal/payment-recovery/queue";
-const RECOVERY_DLQ_ROUTE = "/api/internal/payment-recovery/dlq";
-const RECOVERY_SECRET_HEADER = "x-payment-recovery-queue-secret";
-
-function getSiteUrl(env) {
-  return (
-    env.SITE_URL ||
-    env.NEXT_PUBLIC_SITE_URL ||
-    "https://mubendecountryresort.mubendecountryresort.workers.dev"
-  ).replace(/\/+$/, "");
-}
-
-async function dispatchPaymentRecoveryMessage(message, env, ctx) {
-  const secret = env.PAYMENT_RECOVERY_QUEUE_SECRET;
-  if (!secret) {
-    throw new Error("Missing PAYMENT_RECOVERY_QUEUE_SECRET.");
+async function dispatchPaymentRecoveryMessage(message, env) {
+  if (!env.PAYMENT_RECONCILER) {
+    throw new Error("Missing PAYMENT_RECONCILER service binding.");
   }
-
-  const url = new URL(RECOVERY_ROUTE, getSiteUrl(env));
-  const response = await openNextWorker.fetch(
-    new Request(url.toString(), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        [RECOVERY_SECRET_HEADER]: secret
-      },
-      body: JSON.stringify(message.body)
-    }),
-    env,
-    ctx
-  );
+  const response = await env.PAYMENT_RECONCILER.fetch("https://payment-reconciler.internal/recover", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(message.body)
+  });
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
@@ -48,30 +26,20 @@ async function dispatchPaymentRecoveryMessage(message, env, ctx) {
   }
 }
 
-async function dispatchPaymentRecoveryDeadLetter(message, env, ctx) {
-  const secret = env.PAYMENT_RECOVERY_QUEUE_SECRET;
-  if (!secret) {
-    throw new Error("Missing PAYMENT_RECOVERY_QUEUE_SECRET.");
+async function dispatchPaymentRecoveryDeadLetter(message, env) {
+  if (!env.PAYMENT_RECONCILER) {
+    throw new Error("Missing PAYMENT_RECONCILER service binding.");
   }
-
-  const url = new URL(RECOVERY_DLQ_ROUTE, getSiteUrl(env));
-  const response = await openNextWorker.fetch(
-    new Request(url.toString(), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        [RECOVERY_SECRET_HEADER]: secret
-      },
-      body: JSON.stringify({
-        message: message.body,
-        messageId: message.id,
-        attempts: message.attempts,
-        queue: PAYMENT_RECOVERY_DLQ_NAME
-      })
-    }),
-    env,
-    ctx
-  );
+  const response = await env.PAYMENT_RECONCILER.fetch("https://payment-reconciler.internal/dlq", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      message: message.body,
+      messageId: message.id,
+      attempts: message.attempts,
+      queue: PAYMENT_RECOVERY_DLQ_NAME
+    })
+  });
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
@@ -84,10 +52,10 @@ const worker = {
     return openNextWorker.fetch(request, env, ctx);
   },
 
-  async queue(batch, env, ctx) {
+  async queue(batch, env) {
     await consumePaymentRecoveryBatch(batch, {
-      dispatchRecovery: (message) => dispatchPaymentRecoveryMessage(message, env, ctx),
-      dispatchDeadLetter: (message) => dispatchPaymentRecoveryDeadLetter(message, env, ctx),
+      dispatchRecovery: (message) => dispatchPaymentRecoveryMessage(message, env),
+      dispatchDeadLetter: (message) => dispatchPaymentRecoveryDeadLetter(message, env),
       logError: (entry) => console.error(entry)
     });
   }

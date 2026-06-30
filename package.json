@@ -10,8 +10,10 @@
     "test:payment-recovery": "node --test tests/payment-recovery-*.test.mjs",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "deploy:reconciler": "wrangler deploy --config wrangler.reconciler.jsonc",
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
-    "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts"
+    "cf-typegen": "wrangler types --include-runtime=false --env-interface CloudflareEnv cloudflare-env.d.ts",
+    "cf-typegen:reconciler": "wrangler types --include-runtime=false --config wrangler.reconciler.jsonc --env-interface PaymentReconcilerEnv payment-reconciler-env.d.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
@@ -20,6 +22,7 @@
     "react-dom": "^19.2.6"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260630.1",
     "@opennextjs/cloudflare": "^1.19.11",
     "@types/node": "20.17.46",
     "@types/react": "^19.2.15",
