@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/client";
+import { AsyncTtlLruCache } from "@/lib/rooms/cache";
 
 // Storefront room content is sourced from the shared `room_types` table, which
 // the admin app manages (titles, copy, pricing, cover image, gallery). Keeping
@@ -64,20 +65,18 @@ type RoomTypeRow = {
   gallery: string[] | null;
 };
 
-// In-isolate read-through cache (MCR-PERF-01). Tiny key space (a handful of
-// rooms + gallery variants), so no eviction is needed beyond TTL expiry.
+// Only fixed public-content keys enter module state; never request/user data or
+// attacker-controlled slugs.
 const CACHE_TTL_MS = 60_000;
-type CacheEntry<T> = { at: number; value: T };
-const readCache = new Map<string, CacheEntry<unknown>>();
+const ROOM_CACHE_MAX_ENTRIES = 4;
+type RoomCacheKey = "rooms" | "detailedRooms" | "roomSlugs" | "galleryPool";
+const readCache = new AsyncTtlLruCache({
+  maxEntries: ROOM_CACHE_MAX_ENTRIES,
+  ttlMs: CACHE_TTL_MS
+});
 
-async function cachedRead<T>(key: string, loader: () => Promise<T>): Promise<T> {
-  const hit = readCache.get(key) as CacheEntry<T> | undefined;
-  if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
-    return hit.value;
-  }
-  const value = await loader();
-  readCache.set(key, { at: Date.now(), value });
-  return value;
+async function cachedRead<T>(key: RoomCacheKey, loader: () => Promise<T>): Promise<T> {
+  return readCache.read(key, loader);
 }
 
 function formatPrice(priceUgx: number): string {
@@ -139,17 +138,8 @@ export async function getDetailedRooms(): Promise<DetailedRoom[]> {
 }
 
 export async function getRoomBySlug(slug: string): Promise<DetailedRoom | null> {
-  return cachedRead(`room:${slug}`, async () => {
-    const sql = getSql();
-    const rows = (await sql`
-      select slug, title, description, overview, price_ugx, cover_image_url,
-             details, amenities, dining_hours, gallery
-      from room_types
-      where slug = ${slug} and is_published = true
-      limit 1
-    `) as RoomTypeRow[];
-    return rows[0] ? toDetailedRoom(rows[0]) : null;
-  });
+  const rooms = await getDetailedRooms();
+  return rooms.find((room) => room.slug === slug) ?? null;
 }
 
 export async function getRoomSlugs(): Promise<string[]> {

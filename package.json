@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "test:payment-recovery": "node --test tests/payment-recovery-*.test.mjs",
+    "test:room-cache": "node --test tests/room-cache.test.mjs",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "deploy:reconciler": "wrangler deploy --config wrangler.reconciler.jsonc",

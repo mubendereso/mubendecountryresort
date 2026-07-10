@@ -1,7 +1,14 @@
 /** @type {import('next').NextConfig} */
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- this config is intentionally CommonJS
+const { buildStorefrontContentSecurityPolicy } = require('./lib/security/csp.cjs');
+
+const contentSecurityPolicy = buildStorefrontContentSecurityPolicy({
+  isDevelopment: process.env.NODE_ENV === 'development',
+  r2PublicHostname: process.env.R2_PUBLIC_HOSTNAME
+});
+
 const nextConfig = {
   images: {
-    unoptimized: true,
     remotePatterns: [
       {
         protocol: 'https',
@@ -42,7 +49,7 @@ const nextConfig = {
           },
           {
             key: 'Content-Security-Policy',
-            value: "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests"
+            value: contentSecurityPolicy
           }
         ]
       }
