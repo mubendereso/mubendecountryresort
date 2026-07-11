@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 
 // Airbnb-style room gallery. Desktop shows an adaptive mosaic (1–5 tiles laid
@@ -24,13 +24,18 @@ function tileClass(count: number, i: number): string {
   return i === 0 ? 'col-span-2 row-span-2' : 'col-span-1 row-span-1';
 }
 
+const emptySubscribe = () => () => {};
+const clientMountedSnapshot = () => true;
+const serverMountedSnapshot = () => false;
+
 export default function RoomGallery({ images, title }: { images: string[]; title: string }) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(
+    emptySubscribe,
+    clientMountedSnapshot,
+    serverMountedSnapshot
+  );
   const overlayRef = useRef<HTMLDivElement>(null);
-
-  // createPortal needs the DOM; only render the portal after mount.
-  useEffect(() => setMounted(true), []);
 
   const isOpen = lightboxIndex !== null;
   const open = (index: number) => setLightboxIndex(index);
