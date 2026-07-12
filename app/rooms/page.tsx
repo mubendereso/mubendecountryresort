@@ -1,4 +1,4 @@
-import Image from 'next/image';
+import Image from '@/components/StorefrontImage';
 import Link from 'next/link';
 import Reveal from '@/components/Reveal';
 import { getRooms } from '@/lib/rooms/data';

@@ -1,4 +1,4 @@
-import Image from 'next/image';
+import Image from '@/components/StorefrontImage';
 import Reveal from '@/components/Reveal';
 import { getResortGalleryImages } from '@/lib/rooms/data';
 
