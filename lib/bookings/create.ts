@@ -1,6 +1,10 @@
 "use server";
 
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
+import {
+  BOOKING_CONFIRMATION_SESSION_COOKIE,
+  BOOKING_CONFIRMATION_SESSION_MAX_AGE_SECONDS
+} from "@/lib/booking-confirmation-session";
 import { getSql } from "@/lib/db/client";
 import { getSiteOrigin } from "@/lib/env";
 import { consumeRateLimit, getClientIp } from "@/lib/rate-limit";
@@ -93,11 +97,12 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
   let reference: string;
   let quotedTotalUgx: number;
   let paymentCapability: string;
+  let confirmationSessionToken: string;
 
   try {
     const rows = (await sql`
-      SELECT booking_id, reference, quoted_total_ugx, payment_capability
-      FROM create_online_booking_with_payment_capability(
+      SELECT booking_id, reference, quoted_total_ugx, payment_capability, confirmation_session_token
+      FROM create_online_booking_with_confirmation_session(
         ${roomTypeSlug}::text,
         ${checkIn}::date,
         ${checkOut}::date,
@@ -113,6 +118,7 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
       reference: string;
       quoted_total_ugx: string;
       payment_capability: string;
+      confirmation_session_token: string;
     }[];
 
     if (!rows[0]) return { ok: false, error: "Booking could not be created. Please try again." };
@@ -120,6 +126,11 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
     reference = rows[0].reference;
     quotedTotalUgx = Number(rows[0].quoted_total_ugx);
     paymentCapability = rows[0].payment_capability;
+    confirmationSessionToken = rows[0].confirmation_session_token;
+
+    if (!confirmationSessionToken) {
+      throw new Error("Booking creation returned no confirmation session");
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message.toLowerCase() : "";
     if (msg.includes("availability") || msg.includes("available")) {
@@ -274,6 +285,19 @@ export async function initiateBookingAction(formData: FormData): Promise<Initiat
     },
     { reason: "Booking payment initiated." }
   );
+
+  // This opaque, HttpOnly cookie is the only way the confirmation page reveals
+  // booking details. It survives Pesapal's top-level return navigation without
+  // exposing a credential in the URL or relying on knowledge of guest contact
+  // information.
+  const cookieStore = await cookies();
+  cookieStore.set(BOOKING_CONFIRMATION_SESSION_COOKIE, confirmationSessionToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/book/confirmation",
+    maxAge: BOOKING_CONFIRMATION_SESSION_MAX_AGE_SECONDS
+  });
 
   return { ok: true, redirectUrl, reference };
 }

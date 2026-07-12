@@ -1,6 +1,10 @@
 import Link from "next/link";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { getSql } from "@/lib/db/client";
+import {
+  BOOKING_CONFIRMATION_SESSION_COOKIE,
+  readBookingConfirmationSessionToken
+} from "@/lib/booking-confirmation-session";
 import { consumeRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +15,6 @@ const CONFIRMATION_LOOKUP_IP_WINDOW_SECONDS = 600; // 10 minutes
 type ConfirmationRow = {
   reference: string;
   status: string;
-  proof_verified: boolean;
   check_in: string | Date | null;
   check_out: string | Date | null;
   guest_full_name: string | null;
@@ -120,76 +123,13 @@ function SummaryCard({
   );
 }
 
-function VerificationForm({
-  reference,
-  cancelled,
-  proofProvided,
-  proofVerified
-}: {
-  reference: string;
-  cancelled?: string;
-  proofProvided: boolean;
-  proofVerified: boolean;
-}) {
-  return (
-    <section
-      aria-labelledby="retrieve-booking-heading"
-      className="rounded-3xl border border-stoneWarm-200 bg-white/80 p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/80 sm:p-6"
-    >
-      <div className="max-w-2xl">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-oliveMuted-600">
-          Booking retrieval
-        </p>
-        <h2 id="retrieve-booking-heading" className="mt-2 font-heading text-2xl text-zinc-900 dark:text-zinc-100">
-          Need to retrieve this booking later?
-        </h2>
-        <p className="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-300">
-          You can retrieve your reservation at any time using your booking reference together with
-          your email address or the last four digits of your phone number.
-        </p>
-      </div>
-
-      {!proofVerified && proofProvided && (
-        <p className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          That email or phone proof did not match this booking.
-        </p>
-      )}
-
-      <form method="get" className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-        <input type="hidden" name="ref" value={reference} />
-        {cancelled === "1" && <input type="hidden" name="cancelled" value="1" />}
-        <div>
-          <label htmlFor="proof" className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            Email or phone suffix
-          </label>
-          <input
-            id="proof"
-            name="proof"
-            type="text"
-            autoComplete="off"
-            required
-            className="mt-2 w-full rounded-2xl border border-stoneWarm-200 bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-oliveMuted-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-          />
-        </div>
-        <button
-          type="submit"
-          className="rounded-full bg-oliveMuted-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-oliveMuted-500 focus:outline-none focus:ring-2 focus:ring-oliveMuted-400 focus:ring-offset-2 dark:focus:ring-offset-zinc-900"
-        >
-          View Details
-        </button>
-      </form>
-    </section>
-  );
-}
-
 export default async function ConfirmationPage({
   searchParams
 }: {
-  searchParams: Promise<{ ref?: string; cancelled?: string; proof?: string }>;
+  searchParams: Promise<{ ref?: string; cancelled?: string }>;
 }) {
-  const { ref, cancelled, proof } = await searchParams;
+  const { ref, cancelled } = await searchParams;
   const reference = Array.isArray(ref) ? ref[0] : ref;
-  const proofValue = Array.isArray(proof) ? proof[0] : proof;
 
   if (!reference) {
     return (
@@ -198,6 +138,26 @@ export default async function ConfirmationPage({
           <h1 className="font-heading text-3xl">Booking not found</h1>
           <p className="mt-4 text-sm text-zinc-600">
             Please check your email or contact us for assistance.
+          </p>
+          <Link href="/" className="mt-6 inline-block text-sm text-oliveMuted-600 hover:underline">
+            Return to home
+          </Link>
+        </div>
+      </section>
+    );
+  }
+
+  const sessionToken = readBookingConfirmationSessionToken(
+    (await cookies()).get(BOOKING_CONFIRMATION_SESSION_COOKIE)?.value
+  );
+
+  if (!sessionToken) {
+    return (
+      <section className="section-space">
+        <div className="mx-4 max-w-lg sm:mx-auto sm:px-6 lg:px-8">
+          <h1 className="font-heading text-3xl">Booking details unavailable</h1>
+          <p className="mt-4 text-sm text-zinc-600">
+            Open the confirmation page immediately after payment in the same browser. This link alone does not reveal reservation details.
           </p>
           <Link href="/" className="mt-6 inline-block text-sm text-oliveMuted-600 hover:underline">
             Return to home
@@ -234,16 +194,16 @@ export default async function ConfirmationPage({
   const sql = getSql();
   const rows = (await sql`
     SELECT *
-    FROM get_public_booking_confirmation(${reference}, ${proofValue ?? null})
+    FROM get_storefront_booking_confirmation_by_session(${reference}, ${sessionToken}::uuid)
   `) as ConfirmationRow[];
 
   if (!rows[0]) {
     return (
       <section className="section-space">
         <div className="mx-4 max-w-lg sm:mx-auto sm:px-6 lg:px-8">
-          <h1 className="font-heading text-3xl">Booking not found</h1>
+          <h1 className="font-heading text-3xl">Booking details unavailable</h1>
           <p className="mt-4 text-sm text-zinc-600">
-            This booking reference could not be found.
+            This confirmation session has expired or does not match this booking.
           </p>
           <Link href="/" className="mt-6 inline-block text-sm text-oliveMuted-600 hover:underline">
             Return to home
@@ -254,8 +214,6 @@ export default async function ConfirmationPage({
   }
 
   const b = rows[0];
-  const proofProvided = Boolean(proofValue?.trim());
-  const proofVerified = b.proof_verified;
   const isConfirmed = ["confirmed", "checked_in", "checked_out"].includes(b.status);
   const isUnderReview = b.status === "awaiting_confirmation";
   const isPending = b.status === "pending_payment";
@@ -263,17 +221,17 @@ export default async function ConfirmationPage({
   const nights = getNights(b.check_in, b.check_out);
   const guestsTotal = (b.guests_adults ?? 0) + (b.guests_children ?? 0);
   const summaryItems = [
-    proofVerified && b.guest_full_name ? { label: "Guest name", value: b.guest_full_name } : null,
-    proofVerified && b.room_title ? { label: "Room type", value: b.room_title } : null,
-    proofVerified && b.check_in ? { label: "Check-in", value: fmtDate(b.check_in) } : null,
-    proofVerified && b.check_out ? { label: "Check-out", value: fmtDate(b.check_out) } : null,
-    proofVerified && guestsTotal > 0
+    b.guest_full_name ? { label: "Guest name", value: b.guest_full_name } : null,
+    b.room_title ? { label: "Room type", value: b.room_title } : null,
+    b.check_in ? { label: "Check-in", value: fmtDate(b.check_in) } : null,
+    b.check_out ? { label: "Check-out", value: fmtDate(b.check_out) } : null,
+    guestsTotal > 0
       ? { label: "Guests", value: `${guestsTotal} guest${guestsTotal === 1 ? "" : "s"}` }
       : null,
-    proofVerified && nights
+    nights
       ? { label: "Nights", value: `${nights} night${nights === 1 ? "" : "s"}` }
       : null,
-    proofVerified && b.quoted_total_ugx
+    b.quoted_total_ugx
       ? { label: "Total amount", value: fmtUgx(Number(b.quoted_total_ugx)), accent: true }
       : null,
     { label: "Payment status", value: paymentStatusLabel(b.status) },
@@ -352,11 +310,6 @@ export default async function ConfirmationPage({
                 Reservation details
               </h2>
             </div>
-            {!proofVerified && (
-              <p className="max-w-md text-sm leading-6 text-zinc-600 dark:text-zinc-300">
-                To protect your privacy, stay details are shown after verification.
-              </p>
-            )}
           </div>
 
           <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -406,15 +359,6 @@ export default async function ConfirmationPage({
             </Link>
           </div>
         </section>
-
-        <div className="mt-6">
-          <VerificationForm
-            reference={b.reference}
-            cancelled={cancelled}
-            proofProvided={proofProvided}
-            proofVerified={proofVerified}
-          />
-        </div>
       </div>
     </section>
   );
