@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { cookies, headers } from "next/headers";
+import BookingConfirmationAutoRefresh from "@/components/BookingConfirmationAutoRefresh";
 import { getSql } from "@/lib/db/client";
 import {
   BOOKING_CONFIRMATION_SESSION_COOKIE,
@@ -283,6 +284,9 @@ export default async function ConfirmationPage({
                 <p className="mt-4 max-w-xl text-base leading-7 text-zinc-600 dark:text-zinc-300">
                   {heroCopy}
                 </p>
+                {isPending && cancelled !== "1" && (
+                  <BookingConfirmationAutoRefresh reference={b.reference} />
+                )}
               </div>
             </div>
 

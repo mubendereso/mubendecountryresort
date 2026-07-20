@@ -39,7 +39,7 @@
 			{
 				"queue": "mcr-payment-recovery",
 				"max_batch_size": 5,
-				"max_batch_timeout": 30,
+				"max_batch_timeout": 1,
 				"max_retries": 5,
 				"retry_delay": 300,
 				"dead_letter_queue": "mcr-payment-recovery-dlq"
